@@ -1,0 +1,664 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		000000000000000000000801 /* SpatialLyricsWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 000000000000000000000202 /* SpatialLyricsWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		000000000000000000000802 /* OnnxRuntime.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000205 /* OnnxRuntime.xcframework */; };
+		000000000000000000000803 /* OnnxRuntime.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000205 /* OnnxRuntime.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		000000000000000000000701 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000102;
+			remoteInfo = SpatialLyricsWidgets;
+		};
+		000000000000000000000702 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000101;
+			remoteInfo = SpatialLyricsPlayer;
+		};
+		000000000000000000000703 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000101;
+			remoteInfo = SpatialLyricsPlayer;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		000000000000000000000304 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				000000000000000000000801 /* SpatialLyricsWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000305 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				000000000000000000000803 /* OnnxRuntime.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000201 /* SpatialLyricsPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpatialLyricsPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000202 /* SpatialLyricsWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SpatialLyricsWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000203 /* SpatialLyricsPlayerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpatialLyricsPlayerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000204 /* SpatialLyricsPlayerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpatialLyricsPlayerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000205 /* OnnxRuntime.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = OnnxRuntime.xcframework; path = Vendor/OnnxRuntime/OnnxRuntime.xcframework; sourceTree = "<group>"; };
+		000000000000000000000601 /* App-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "App-Info.plist"; sourceTree = "<group>"; };
+		000000000000000000000602 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		000000000000000000000603 /* Widget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Widget-Info.plist"; sourceTree = "<group>"; };
+		000000000000000000000604 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		00000000000000000000001D /* Overlay */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Overlay; sourceTree = "<group>"; };
+		00000000000000000000001E /* Spatial */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Spatial; sourceTree = "<group>"; };
+		00000000000000000000001F /* Integration */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Integration; sourceTree = "<group>"; };
+		000000000000000000000021 /* UI */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = UI; sourceTree = "<group>"; };
+		000000000000000000000022 /* MenuBar */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MenuBar; sourceTree = "<group>"; };
+		000000000000000000000024 /* System */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = System; sourceTree = "<group>"; };
+		000000000000000000000028 /* Voice */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Voice; sourceTree = "<group>"; };
+
+		000000000000000000000011 /* App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = App; sourceTree = "<group>"; };
+		000000000000000000000012 /* Core */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Core; sourceTree = "<group>"; };
+		000000000000000000000013 /* Sources */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Sources; sourceTree = "<group>"; };
+		000000000000000000000014 /* Playback */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Playback; sourceTree = "<group>"; };
+		000000000000000000000015 /* Lyrics */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Lyrics; sourceTree = "<group>"; };
+		000000000000000000000016 /* Persistence */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Persistence; sourceTree = "<group>"; };
+		000000000000000000000017 /* DI */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DI; sourceTree = "<group>"; };
+		000000000000000000000018 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
+		000000000000000000000019 /* Resources */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Resources; sourceTree = "<group>"; };
+		00000000000000000000001A /* SpatialLyricsWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SpatialLyricsWidgets; sourceTree = "<group>"; };
+		00000000000000000000001B /* Tests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Tests; sourceTree = "<group>"; };
+		00000000000000000000001C /* UITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = UITests; sourceTree = "<group>"; };
+		000000000000000000000025 /* DesignSystem */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DesignSystem; sourceTree = "<group>"; };
+		000000000000000000000026 /* Morphology */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Morphology; sourceTree = "<group>"; };
+		000000000000000000000027 /* Morph */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Morph; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000302 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000802 /* OnnxRuntime.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000312 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000322 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000332 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000004 /* Config */,
+				000000000000000000000025 /* DesignSystem */,
+				000000000000000000000026 /* Morphology */,
+				000000000000000000000027 /* Morph */,
+				000000000000000000000011 /* App */,
+				000000000000000000000012 /* Core */,
+				000000000000000000000013 /* Sources */,
+				000000000000000000000014 /* Playback */,
+				000000000000000000000015 /* Lyrics */,
+				000000000000000000000016 /* Persistence */,
+				000000000000000000000017 /* DI */,
+				000000000000000000000018 /* Shared */,
+				000000000000000000000019 /* Resources */,
+				00000000000000000000001A /* SpatialLyricsWidgets */,
+				00000000000000000000001B /* Tests */,
+				00000000000000000000001C /* UITests */,
+				00000000000000000000001D /* Overlay */,
+				00000000000000000000001E /* Spatial */,
+				00000000000000000000001F /* Integration */,
+				000000000000000000000021 /* UI */,
+				000000000000000000000022 /* MenuBar */,
+				000000000000000000000024 /* System */,
+				000000000000000000000028 /* Voice */,
+				000000000000000000000005 /* Frameworks */,
+				000000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000005 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000205 /* OnnxRuntime.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000201 /* SpatialLyricsPlayer.app */,
+				000000000000000000000202 /* SpatialLyricsWidgets.appex */,
+				000000000000000000000203 /* SpatialLyricsPlayerTests.xctest */,
+				000000000000000000000204 /* SpatialLyricsPlayerUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000601 /* App-Info.plist */,
+				000000000000000000000602 /* App.entitlements */,
+				000000000000000000000603 /* Widget-Info.plist */,
+				000000000000000000000604 /* Widget.entitlements */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000101 /* SpatialLyricsPlayer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000402 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayer" */;
+			buildPhases = (
+				000000000000000000000301 /* Sources */,
+				000000000000000000000302 /* Frameworks */,
+				000000000000000000000303 /* Resources */,
+				000000000000000000000304 /* Embed Foundation Extensions */,
+				000000000000000000000305 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000711 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				000000000000000000000011 /* App */,
+				000000000000000000000012 /* Core */,
+				000000000000000000000013 /* Sources */,
+				000000000000000000000014 /* Playback */,
+				000000000000000000000015 /* Lyrics */,
+				000000000000000000000016 /* Persistence */,
+				000000000000000000000017 /* DI */,
+				000000000000000000000018 /* Shared */,
+				000000000000000000000025 /* DesignSystem */,
+				000000000000000000000026 /* Morphology */,
+				000000000000000000000027 /* Morph */,
+				000000000000000000000019 /* Resources */,
+				00000000000000000000001D /* Overlay */,
+				00000000000000000000001E /* Spatial */,
+				00000000000000000000001F /* Integration */,
+				000000000000000000000021 /* UI */,
+				000000000000000000000022 /* MenuBar */,
+				000000000000000000000024 /* System */,
+				000000000000000000000028 /* Voice */,
+			);
+			name = SpatialLyricsPlayer;
+			packageProductDependencies = (
+			);
+			productName = SpatialLyricsPlayer;
+			productReference = 000000000000000000000201 /* SpatialLyricsPlayer.app */;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000102 /* SpatialLyricsWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000403 /* Build configuration list for PBXNativeTarget "SpatialLyricsWidgets" */;
+			buildPhases = (
+				000000000000000000000311 /* Sources */,
+				000000000000000000000312 /* Frameworks */,
+				000000000000000000000313 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				00000000000000000000001A /* SpatialLyricsWidgets */,
+				000000000000000000000018 /* Shared */,
+			);
+			name = SpatialLyricsWidgets;
+			packageProductDependencies = (
+			);
+			productName = SpatialLyricsWidgets;
+			productReference = 000000000000000000000202 /* SpatialLyricsWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		000000000000000000000103 /* SpatialLyricsPlayerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000404 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayerTests" */;
+			buildPhases = (
+				000000000000000000000321 /* Sources */,
+				000000000000000000000322 /* Frameworks */,
+				000000000000000000000323 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000712 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				00000000000000000000001B /* Tests */,
+			);
+			name = SpatialLyricsPlayerTests;
+			packageProductDependencies = (
+			);
+			productName = SpatialLyricsPlayerTests;
+			productReference = 000000000000000000000203 /* SpatialLyricsPlayerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		000000000000000000000104 /* SpatialLyricsPlayerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000405 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayerUITests" */;
+			buildPhases = (
+				000000000000000000000331 /* Sources */,
+				000000000000000000000332 /* Frameworks */,
+				000000000000000000000333 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000713 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				00000000000000000000001C /* UITests */,
+			);
+			name = SpatialLyricsPlayerUITests;
+			packageProductDependencies = (
+			);
+			productName = SpatialLyricsPlayerUITests;
+			productReference = 000000000000000000000204 /* SpatialLyricsPlayerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					000000000000000000000101 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					000000000000000000000102 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					000000000000000000000103 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 000000000000000000000101;
+					};
+					000000000000000000000104 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 000000000000000000000101;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000401 /* Build configuration list for PBXProject "SpatialLyricsPlayer" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 000000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 000000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000101 /* SpatialLyricsPlayer */,
+				000000000000000000000102 /* SpatialLyricsWidgets */,
+				000000000000000000000103 /* SpatialLyricsPlayerTests */,
+				000000000000000000000104 /* SpatialLyricsPlayerUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000303 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000313 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000323 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000333 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000301 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000311 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000321 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000331 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		000000000000000000000711 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000102 /* SpatialLyricsWidgets */;
+			targetProxy = 000000000000000000000701 /* PBXContainerItemProxy */;
+		};
+		000000000000000000000712 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000101 /* SpatialLyricsPlayer */;
+			targetProxy = 000000000000000000000702 /* PBXContainerItemProxy */;
+		};
+		000000000000000000000713 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000101 /* SpatialLyricsPlayer */;
+			targetProxy = 000000000000000000000703 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000501 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000502 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		000000000000000000000511 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/App.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000512 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/App.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		000000000000000000000521 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/Widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000522 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/Widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		000000000000000000000531 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SpatialLyricsPlayer.app/Contents/MacOS/SpatialLyricsPlayer";
+			};
+			name = Debug;
+		};
+		000000000000000000000532 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SpatialLyricsPlayer.app/Contents/MacOS/SpatialLyricsPlayer";
+			};
+			name = Release;
+		};
+		000000000000000000000541 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = SpatialLyricsPlayer;
+			};
+			name = Debug;
+		};
+		000000000000000000000542 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yg.spatiallyrics.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = SpatialLyricsPlayer;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000401 /* Build configuration list for PBXProject "SpatialLyricsPlayer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000501 /* Debug */,
+				000000000000000000000502 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000402 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000511 /* Debug */,
+				000000000000000000000512 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000403 /* Build configuration list for PBXNativeTarget "SpatialLyricsWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000521 /* Debug */,
+				000000000000000000000522 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000404 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000531 /* Debug */,
+				000000000000000000000532 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000405 /* Build configuration list for PBXNativeTarget "SpatialLyricsPlayerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000541 /* Debug */,
+				000000000000000000000542 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}

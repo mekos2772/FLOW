@@ -1,0 +1,47 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+*.xcarchive
+*.dSYM/
+.build/
+*.profraw
+*.log
+.zcode/
+.swiftpm/
+/tmp/
+
+# 打包产物：安装包放 GitHub Releases，不进仓库
+dist/
+*.dmg
+*.app/
+
+# ONNX Runtime 二进制由 Scripts/fetch-onnxruntime.sh 下载（头文件与 Info.plist 在仓库里）
+Vendor/OnnxRuntime/OnnxRuntime.xcframework/macos-arm64/OnnxRuntime.framework/Versions/A/OnnxRuntime
+# codesign 运行时生成的签名目录
+Vendor/OnnxRuntime/OnnxRuntime.xcframework/macos-arm64/OnnxRuntime.framework/Versions/A/_CodeSignature/
+
+# 模型与音色：运行时下载或用户自备，不分发
+*.voicepack/
+*.onnx
+*.pth
+*.pt
+*.index
+*.f32bin
+
+# Python 工具
+Tools/rvc-converter/.venv/
+__pycache__/
+*.pyc
+
+# 本地凭据
+.env
+.env.*
+*.p12
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+bili_cookie*.json

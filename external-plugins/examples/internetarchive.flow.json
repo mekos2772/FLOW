@@ -1,0 +1,39 @@
+{
+  "schema": "flow-source-v1",
+  "id": "internet-archive-audio",
+  "name": "Internet Archive Audio",
+  "version": "1.0.0",
+  "allowedDomains": ["archive.org", "*.archive.org", "*.us.archive.org"],
+  "headers": {
+    "Accept": "application/json"
+  },
+  "discover": {
+    "method": "GET",
+    "url": "https://archive.org/advancedsearch.php?q=mediatype%3Aaudio+AND+collection%3Anetlabels&fl%5B%5D=identifier,title,creator&sort%5B%5D=downloads+desc&rows={{limit}}&output=json",
+    "itemsPath": "response.docs",
+    "fields": {
+      "id": "identifier",
+      "title": "title|identifier",
+      "artist": "creator.0|creator",
+      "artworkTemplate": "https://archive.org/services/img/{{id}}",
+      "streamUrlTemplate": "https://archive.org/download/{{id}}/{{id}}.mp3"
+    }
+  },
+  "search": {
+    "method": "GET",
+    "url": "https://archive.org/advancedsearch.php?q=mediatype%3Aaudio+AND+({{query}})&fl%5B%5D=identifier,title,creator&rows={{limit}}&output=json",
+    "itemsPath": "response.docs",
+    "fields": {
+      "id": "identifier",
+      "title": "title|identifier",
+      "artist": "creator.0|creator",
+      "artworkTemplate": "https://archive.org/services/img/{{id}}"
+    }
+  },
+  "resolve": {
+    "mode": "direct",
+    "url": "https://archive.org/download/{{id}}/{{id}}.mp3",
+    "codec": "MP3",
+    "fileExtension": "mp3"
+  }
+}

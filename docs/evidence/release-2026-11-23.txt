@@ -1,0 +1,37 @@
+FLOW Beta 打包与签名沙盒包实机冒烟记录
+日期：2026-11-23
+范围：新手引导、AI 版生成并播放/预热追踪/缓存清理修复、小组件 Hardened Runtime 之后的 Beta 包。
+未上传、未发布、未签名公证（开源分发不做付费签名）。安装包对应公开仓库首个提交的源码。
+
+1. 全量工程门禁（干净 derivedData）
+命令：rm -rf /tmp/slp-verify && ./Scripts/verify.sh
+结果：Executed 1312 tests, with 9 tests skipped and 0 failures（开源整理后；移走 B 站插件端到端用例 2 条）；无测试进程崩溃/重启
+  architecture-lint: OK；dead-code-scan: OK；Release 构建 0 警告；check-doc-numbers: OK（同步清单后）
+XCResult：/tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.23_01-43-50-+0800.xcresult
+覆盖率：见 coverage.txt（同次结果）
+
+2. Beta 安装包
+产物：`./Scripts/package-release.sh` 生成 `dist/FLOW-0.1.0-arm64.dmg`（18 MB，UDZO，hdiutil verify VALID；挂载后 codesign --verify --deep --strict 通过；Resources 里含 ONNXRuntime-LICENSE.txt 与 ONNXRuntime-ThirdPartyNotices.txt），发布时上传到 GitHub Releases
+SHA-256：56c3a99c98c2e42786ebe8d764637da4762b2fb1f424b26025a4577c52f072bc
+内容：FLOW.app（来自上面同一次 verify 的 Release 产物 /tmp/slp-release，版本 0.1.0 (1)，arm64，macOS 14+）+ Applications 快捷方式
+签名：ad-hoc（本机 0 个签名身份）。顺序：OnnxRuntime.framework → 小组件（Widget.entitlements）→ 主程序（App.entitlements，沙盒 + App Group + 联网客户端/本机服务 + 下载目录只读 + 用户选择文件读写）
+  codesign --verify --deep --strict：通过（挂载 DMG 后再验一次同样通过）
+  未加 --options runtime：ad-hoc 签名下开 Hardened Runtime 会因库校验拒绝加载同为 ad-hoc 的 OnnxRuntime（Xcode 构建日志同样提示 "Disabling hardened runtime with ad-hoc codesigning"）。正式包用 Developer ID 签名时三者都开 Hardened Runtime（工程里主程序与小组件已设为 YES）。
+  spctl：source=no usable signature —— 其它 Mac 首次打开会被 Gatekeeper 拦下，需右键「打开」或在系统设置里「仍要打开」。
+
+3. 签名沙盒包实机冒烟（本机，沙盒容器 ~/Library/Containers/com.yg.spatiallyrics）
+- 启动：进程常驻、主窗口 1020×640 正常出现；退出后无新崩溃报告。
+- 新手引导：第一次冒烟发现**不弹**（根视图先用空容器建、onAppear 时取不到设置），修复后重建重签：
+  冷启动自动出现第 1 步（搜索框高亮 + 箭头）；无歌时共 4 步；AX 按「下一步」依次到侧栏、三档切换、内容区；
+  按「开始使用」后 settings.hasSeenOnboarding = 1；⌘, 打开设置 → 通用 → 上手「重新查看」后主窗口重新从第 1 步开始。
+  实机截图还暴露两处版面问题并已修：搜索框高亮带上了左侧留白、内容区那一步箭头压住空态文字。
+- 测试结束后已删除容器里的 settings.hasSeenOnboarding，用户安装后首次打开仍会看到引导。
+- 交互方式：AXUIElement 按压按钮、CGEvent.postToPid 发 ⌘,、screencapture -l 截窗口（合成鼠标点击送不到 MorphPanel，属已知测试环境限制）。
+
+4. 仍未验证 / 正式发布阻塞
+- 干净机器上的首次安装（右键打开流程）：本机做不了，需要另一台 Mac。开源分发不做 Developer ID 签名与公证。
+- App Group 标识 group.com.yg.spatiallyrics 未带 Team ID 前缀：ad-hoc 分发下小组件可能读不到共享数据（代码已按"不可用"兜底，诊断里会如实显示）；以后做 Developer ID 签名时改成 <TeamID>.group…。
+- 沙盒包里读 ~/Downloads/FLOW-VoicePacks、三个底座模型实网整链下载、系统翻译语言包下载后的真实效果、FLOW Voice 全曲有声试听：本次未做。
+
+5. 开源整理后复测（01:48）
+- 新包冷启动：搜索框占位「搜索歌名或歌手」、引导第 1 步文案不再提 BV 号；关于页资源里有 ONNXRuntime-LICENSE.txt 与 ONNXRuntime-ThirdPartyNotices.txt。

@@ -1,0 +1,20 @@
+{
+  "name": "FLOW 外部多 API 预设清单",
+  "plugins": [
+    {
+      "name": "Audius (Open Music)",
+      "version": "1.0.0",
+      "url": "./examples/audius.flow.json"
+    },
+    {
+      "name": "Radio Browser (Open Stations)",
+      "version": "1.0.0",
+      "url": "./examples/radiobrowser.flow.json"
+    },
+    {
+      "name": "Internet Archive Audio",
+      "version": "1.0.0",
+      "url": "./examples/internetarchive.flow.json"
+    }
+  ]
+}

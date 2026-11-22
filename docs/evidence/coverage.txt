@@ -1,0 +1,35 @@
+# 覆盖率测量（唯一权威来源）
+
+测量时间: 2026-11-23（新手引导、AI 版生成并播放/预热追踪/缓存清理修复、小组件 Hardened Runtime、签名沙盒包实机修正引导触发、开源整理（移除 B 站插件端到端用例 2 条）之后）
+命令:
+  ./Scripts/verify.sh
+  xcrun xccov view --report --json /tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.23_01-43-50-+0800.xcresult
+
+结果:
+  SpatialLyricsPlayer.app 行覆盖: 62.43%
+  已覆盖行数: 40543 / 64942
+  零覆盖文件: 6 / 246
+  零覆盖清单:
+    Core/Utilities/QRImageRenderer.swift
+    MenuBar/MenuBarView.swift
+    Playback/Bridging/NowPlayingBridge.swift
+    UI/Expanded/KeyboardOffsetMonitor.swift
+    UI/Expanded/RankingPagination.swift
+    Voice/Models/MDXModelCatalog.swift
+
+本轮相关文件:
+  UI/Onboarding/OnboardingTour.swift 覆盖率: 96.88%
+  UI/Expanded/ExpandedPlayerView.swift 覆盖率: 71.81%
+  Voice/Integration/VoicePlaybackDriver.swift 覆盖率: 85.13%
+  Voice/Integration/VoiceManager.swift 覆盖率: 72.77%
+  Voice/Cache/VoiceCacheManager.swift 覆盖率: 96.53%
+  DI/SettingsStoring.swift 覆盖率: 99.31%
+  UI/Settings/SettingsView.swift 覆盖率: 14.34%（视图层，主要靠离屏渲染与人工走查）
+
+说明:
+  对应同次默认单测基线：1312 条、9 条跳过、0 失败（干净 derivedData 重跑，无测试进程崩溃/重启）。
+  本次包含真实回环 HTTP 与 AVPlayer 静音 HLS 播放，不依赖公网服务。
+  默认跳过的联网与可选音频专项单独记录在 RELEASE_CHECKLIST.md，不混入本次覆盖率快照。
+  精选卡片的系统翻译（Translation 框架）在测试宿主里无法完成用户授权，只覆盖了词表、缓存与失败兜底；卡片真实点击下载未计入覆盖率。
+  新手引导在测试宿主里不会自动弹出（避免盖住其它界面用例），引导层本身用几何单测 + 每一步离屏渲染覆盖。
+  文档正文不再写死覆盖率数字，一律以本文件为准。

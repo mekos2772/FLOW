@@ -1,0 +1,35 @@
+{
+  "schema": "flow-source-v1",
+  "id": "radiobrowser-open",
+  "name": "Radio Browser (Open Stations)",
+  "version": "1.0.0",
+  "allowedDomains": ["*"],
+  "headers": {
+    "Accept": "application/json",
+    "User-Agent": "FLOW-Player/1.0"
+  },
+  "discover": {
+    "method": "GET",
+    "url": "https://de1.api.radio-browser.info/json/stations/topvote/{{limit}}",
+    "fields": {
+      "id": "stationuuid",
+      "title": "name",
+      "artist": "country|tags",
+      "album": "codec",
+      "artwork": "favicon",
+      "streamUrl": "url_resolved|url"
+    }
+  },
+  "search": {
+    "method": "GET",
+    "url": "https://de1.api.radio-browser.info/json/stations/search?name={{query}}&limit={{limit}}&hidebroken=true",
+    "fields": {
+      "id": "stationuuid",
+      "title": "name",
+      "artist": "country|tags",
+      "album": "codec",
+      "artwork": "favicon",
+      "streamUrl": "url_resolved|url"
+    }
+  }
+}

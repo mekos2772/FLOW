@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>FLOW · 动效手感实验室</title>
+<style>
+  :root{
+    --bg:#0f1012; --panel:#17191c; --line:#2a2d32; --fg:#e8eaed; --dim:#9aa0a6;
+    --a:#4da3ff; --b:#2fd4c4; --c:#ffa53d; --d:#ff6b9d; --e:#b48cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif}
+  header{padding:26px 32px 14px;border-bottom:1px solid var(--line)}
+  h1{margin:0 0 6px;font-size:19px;letter-spacing:-.2px}
+  .sub{color:var(--dim);font-size:12.5px}
+  .wrap{padding:22px 32px 60px;max-width:1240px}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h2{margin:0 0 2px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .spec{color:var(--dim);font-size:11.5px;font-variant-numeric:tabular-nums;margin-bottom:12px}
+  .track{position:relative;height:52px;border-radius:9px;background:#101215;
+    border:1px solid #23262b;overflow:hidden}
+  .lane{position:absolute;left:12px;right:12px;top:21px;height:10px}
+  .ghost{position:absolute;inset:0;border-radius:5px;background:#22262c}
+  .box{position:absolute;top:0;width:10px;height:10px;border-radius:3px}
+  .chip{position:absolute;top:6px;width:52px;height:40px;border-radius:7px;
+    display:grid;place-items:center;font-size:9.5px;color:#0c0d0f;font-weight:700}
+  .row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  button{background:#23262c;color:var(--fg);border:1px solid #33373d;border-radius:7px;
+    padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  button:hover{background:#2b2f36}
+  button.pri{background:#e8eaed;color:#111;border-color:#e8eaed;font-weight:600}
+  .formula{color:var(--dim);font-size:10.5px;margin-top:9px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .sec{margin:34px 0 12px;font-size:13px;color:var(--dim);letter-spacing:.4px;text-transform:uppercase}
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  canvas{width:100%;height:auto;display:block}
+  .note{background:#15181b;border-left:2px solid #3a3f46;padding:11px 14px;
+    border-radius:0 8px 8px 0;color:var(--dim);font-size:12.5px;margin-top:14px}
+  .note b{color:var(--fg);font-weight:600}
+  .live{display:flex;flex-direction:column;gap:12px;
+    background:#14161a;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px}
+  .stage{position:relative;height:150px;width:100%;border-radius:9px;
+    background:#101215;border:1px solid #23262b;overflow:hidden}
+  .stage .window{position:absolute;left:10px;top:26px;width:150px;height:66px;border-radius:9px;
+    background:linear-gradient(180deg,#2b3038,#20242a);border:1px solid #3a4048;
+    display:grid;place-items:center;font-size:10.5px;color:#c7ccd2}
+
+  .buffer{background:#15181b;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--dim)}
+  .bufrow{display:flex;gap:9px;align-items:flex-start;padding:4px 0}
+  .bufrow b{color:var(--fg);font-weight:600}
+  .bufdot{width:8px;height:8px;border-radius:50%;margin-top:6px;flex:none}
+  .desktop-hint{position:absolute;left:10px;top:8px;font-size:10px;color:#5b6068}
+  .twin{position:absolute;border-radius:10px;border:1px solid #4a515a;
+    background:linear-gradient(180deg,#31363e,#232830);display:grid;place-items:center;
+    font-size:10.5px;color:#c9ced5;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .twin .inner{width:100%;height:100%;display:grid;place-items:center;border-radius:inherit;
+    background:rgba(255,255,255,.03)}
+  table.design{width:100%;border-collapse:collapse;margin-top:14px;font-size:12.5px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table.design th{text-align:left;padding:9px 12px;color:var(--dim);font-weight:500;
+    font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line)}
+  table.design td{padding:9px 12px;border-bottom:1px solid #22252a;vertical-align:top}
+  table.design tr:last-child td{border-bottom:none}
+  table.design td:nth-child(3){font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;
+    font-family:ui-monospace,Menlo,monospace}
+  .tagB{background:rgba(47,212,196,.16);color:#2fd4c4}
+  .tagC{background:rgba(255,165,61,.16);color:#ffa53d}
+  .tagE{background:rgba(180,140,255,.16);color:#b48cff}
+  .tagN{background:#262a30;color:#8d939b}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+    background:#20242a;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>FLOW · 动效手感实验室</h1>
+  <div class="sub">阻尼弹簧对比 · 点任意卡片播放，或“全部同时播放”横向比较。纯前端，改参数即时生效。</div>
+</header>
+
+<div class="wrap">
+
+  <div class="row" style="margin-bottom:16px">
+    <button class="pri" onclick="playAll()">▶ 全部同时播放</button>
+    <button onclick="setSpeed(1)">1× 速度</button>
+    <button onclick="setSpeed(0.35)">0.35× 慢放</button>
+    <span class="spec" id="speedLabel" style="margin:0">当前 1×</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="sec">曲线形状（横轴时间，纵轴进度；超过 100% 就是回弹）</div>
+  <div class="chart"><canvas id="chart" width="1600" height="700"></canvas></div>
+
+  <div class="sec">整套动作预览（按建议分派的方案）</div>
+  <div class="live">
+    <div class="stage" id="stage">
+      <div class="window" id="win">FLOW</div>
+    </div>
+    <div>
+      <div class="row" style="margin:0 0 8px">
+        <button onclick="demoDodge()">躲避让位</button>
+        <button onclick="demoMorph()">形态切换</button>
+        <button onclick="demoMove()">窗口移动</button>
+        <button onclick="demoReset()">复位</button>
+      </div>
+      <div class="spec" id="demoSpec" style="margin:0">选一个动作，看它用的阻尼参数</div>
+    </div>
+  </div>
+
+
+  <div class="sec">真实过渡设计（B/C 弹簧 · 几何与内容分开）</div>
+
+  <div class="buffer">
+    <div class="bufrow">
+      <span class="bufdot" style="background:var(--b)"></span>
+      <b>几何</b>（窗口 frame）：安全余量只有 6pt 障碍间距 + 4pt 边距 ≈ <b>10pt</b>。
+      所以几何一律<b>钳制不过冲</b>，否则压到别人窗口、甚至出安全区。
+    </div>
+    <div class="bufrow">
+      <span class="bufdot" style="background:var(--c)"></span>
+      <b>内容</b>（内部 scale / 圆角 / 透明度）：没有边界约束，放开让 C 的 5% 过冲去表达弹性。
+      观感上的"有阻尼"主要来自这里。
+    </div>
+  </div>
+
+  <div class="live" style="margin-top:12px">
+    <div class="stage" id="tstage" style="height:300px">
+      <div class="desktop-hint">模拟桌面（按 0.55× 缩放）</div>
+      <div class="twin" id="twin"><div class="inner" id="tinner">FLOW</div></div>
+    </div>
+    <div>
+      <div class="row" id="tbuttons" style="margin:0 0 8px"></div>
+      <div class="spec" id="tspec" style="margin:0">选一个过渡</div>
+      <div class="spec" id="treadout" style="margin:6px 0 0;font-family:ui-monospace,Menlo,monospace"></div>
+    </div>
+  </div>
+
+  <table class="design" id="designTable">
+    <thead><tr><th>过渡</th><th>曲线</th><th>response</th><th>几何过冲</th><th>内容过冲</th><th>理由</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="note">
+    <b>读法</b>：小方块冲过虚线（目标点）再退回来，就是“阻尼感”。<br>
+    <b>关键</b>：<code>ζ=1</code> 恰好停住不回弹；<code>ζ&lt;1</code> 越大回弹越少；<code>ζ&gt;1</code> 只减速、绝不越过。<br>
+    <b>为什么躲避不能用回弹</b>：窗口过冲会短暂压到别的窗口上，可能被判成非法落点。
+  </div>
+</div>
+
+<script>
+// ── 阻尼弹簧：与 SwiftUI Spring / CASpringAnimation 同一套数学模型 ──
+function springValue(response, zeta, t){
+  const w = 2*Math.PI/Math.max(response,0.001);
+  if (Math.abs(zeta-1) < 1e-6) return 1 - Math.exp(-w*t)*(1 + w*t);
+  if (zeta < 1){
+    const wd = w*Math.sqrt(1-zeta*zeta);
+    return 1 - Math.exp(-zeta*w*t)*(Math.cos(wd*t) + (zeta*w/wd)*Math.sin(wd*t));
+  }
+  const s = Math.sqrt(zeta*zeta-1);
+  const r1 = -zeta*w + w*s, r2 = -zeta*w - w*s;
+  const c2 = -r1/(r1-r2), c1 = 1-c2;
+  return 1 - (c1*Math.exp(r1*t) + c2*Math.exp(r2*t));
+}
+function settleTime(response, zeta){
+  if (zeta <= 0) return Infinity;
+  return -Math.log(0.001)/(zeta*2*Math.PI/response);
+}
+function peakOf(response, zeta){
+  let m = 0;
+  for (let t=0;t<2;t+=0.001) m = Math.max(m, springValue(response, zeta, t));
+  return m;
+}
+
+const PRESETS = [
+  {id:'A', name:'A · 临界阻尼', zeta:1.00, response:0.34, color:'var(--a)', hex:'#4da3ff',
+   use:'最保守：干净利落，到达即停'},
+  {id:'B', name:'B · 轻阻尼',  zeta:0.86, response:0.30, color:'var(--b)', hex:'#2fd4c4',
+   use:'日常操作首选：收得住，有一下轻微回弹'},
+  {id:'C', name:'C · 弹性',    zeta:0.68, response:0.36, color:'var(--c)', hex:'#ffa53d',
+   use:'形态切换：有明显物件感'},
+  {id:'D', name:'D · 强回弹',  zeta:0.55, response:0.42, color:'var(--d)', hex:'#ff6b9d',
+   use:'个性最强，也最容易显吵'},
+  {id:'E', name:'E · 过阻尼',  zeta:1.30, response:0.30, color:'var(--e)', hex:'#b48cff',
+   use:'被动躲避：最快贴上，绝不越过'},
+];
+
+let speed = 1;
+function setSpeed(v){
+  speed = v;
+  document.getElementById('speedLabel').textContent = '当前 ' + (v===1?'1×':v+'×');
+}
+
+const grid = document.getElementById('grid');
+const lanes = {};
+
+PRESETS.forEach((p, i) => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const settle = settleTime(p.response, p.zeta);
+  const peak = peakOf(p.response, p.zeta);
+  card.innerHTML = `
+    <h2><span class="dot" style="background:${p.color}"></span>${p.name}</h2>
+    <div class="spec">ζ=${p.zeta.toFixed(2)} · response ${p.response.toFixed(2)}s ·
+      稳定 ${settle.toFixed(2)}s · 峰值 ${Math.round(peak*100)}%</div>
+    <div class="track">
+      <div class="lane">
+        <div class="ghost"></div>
+        <div class="chip" style="background:${p.hex}" id="chip${p.id}">FLOW</div>
+      </div>
+    </div>
+    <div class="row">
+      <button onclick="play('${p.id}')">▶ 播放</button>
+      <span class="spec" style="margin:0">${p.use}</span>
+    </div>
+    <div class="formula">springValue(response:${p.response}, dampingRatio:${p.zeta})</div>`;
+  grid.appendChild(card);
+  lanes[p.id] = { preset:p, chip:card.querySelector('#chip'+p.id), lane:card.querySelector('.lane') };
+});
+
+function play(id){
+  const L = lanes[id];
+  const {zeta, response} = L.preset;
+  const total = settleTime(response, zeta) * 1.05 / speed;
+  const laneW = L.lane.clientWidth - 52;
+  const start = performance.now();
+  L.chip.style.left = '0px';
+  cancelAnimationFrame(L.raf);
+  function frame(now){
+    const t = ((now - start) / 1000) * speed;
+    const p = springValue(response, zeta, Math.min(t, response*20));
+    L.chip.style.left = (p * laneW) + 'px';
+    if (now - start < total*1000) L.raf = requestAnimationFrame(frame);
+    else L.chip.style.left = laneW + 'px';
+  }
+  L.raf = requestAnimationFrame(frame);
+}
+function playAll(){ PRESETS.forEach(p => play(p.id)); }
+
+// ── 曲线图 ──
+(function drawChart(){
+  const c = document.getElementById('chart');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  const left = 90, right = W - 40, top = 30, bottom = H - 56;
+  const dur = 1.1;
+  const px = t => left + (t/dur)*(right-left);
+  const py = v => bottom - (v/1.30)*(bottom-top);
+
+  ctx.fillStyle = '#17191c'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = '#24272c'; ctx.lineWidth = 1;
+  for (let i=0;i<=11;i++){ const x = px(dur*i/11); ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,bottom); ctx.stroke(); }
+  for (let v=0; v<=1.3; v+=0.2){ const y = py(v); ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(right,y); ctx.stroke(); }
+
+  ctx.strokeStyle = 'rgba(255,255,255,.42)'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(left, py(1)); ctx.lineTo(right, py(1)); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '13px -apple-system,sans-serif';
+  ctx.fillText('100% 目标', left+8, py(1)-8);
+  ctx.fillStyle = 'rgba(255,255,255,.35)';
+  for (let v=0; v<=1.3; v+=0.2) ctx.fillText(Math.round(v*100)+'%', 26, py(v)+5);
+  for (let i=0;i<=5;i++){
+    const t = dur*i/5;
+    ctx.fillText(t.toFixed(2)+'s', px(t)-14, bottom+22);
+  }
+
+  PRESETS.forEach(p => {
+    // 先标出峰值点：过冲多少一眼可见
+    let bt = 0, bv = 0;
+    for (let t = 0; t <= dur; t += 0.002){
+      const v = springValue(p.response, p.zeta, t);
+      if (v > bv){ bv = v; bt = t; }
+    }
+    if (bv > 1.005){
+      ctx.fillStyle = p.hex;
+      ctx.beginPath(); ctx.arc(px(bt), py(bv), 4.5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.6)';
+      ctx.font = '11px ui-monospace,Menlo,monospace';
+      ctx.fillText(Math.round(bv*100) + '%', px(bt) + 8, py(bv) - 7);
+    }
+    ctx.strokeStyle = p.hex; ctx.lineWidth = 2.8; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let t=0;t<=dur;t+=0.002){
+      const x = px(t), y = py(springValue(p.response, p.zeta, t));
+      t===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  });
+
+  // 图例放右上角空白区，避免压到曲线上
+  let ly = top + 12;
+  PRESETS.forEach(p => {
+    ctx.fillStyle = p.hex;
+    ctx.beginPath(); ctx.arc(right - 300, ly - 4, 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.82)';
+    ctx.font = '12.5px -apple-system,"PingFang SC",sans-serif';
+    ctx.fillText(p.name, right - 284, ly);
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.font = '11.5px ui-monospace,Menlo,monospace';
+    ctx.fillText('ζ=' + p.zeta.toFixed(2), right - 118, ly);
+    ly += 22;
+  });
+})();
+
+// ── 整套动作预览 ──
+const win = document.getElementById('win');
+const stage = document.getElementById('stage');
+const demoSpec = document.getElementById('demoSpec');
+let stageRaf;
+
+const WIN_W = 150, WIN_H = 66, PAD = 12;
+// 目标位置永远夹在舞台内：过冲量预先留白，回弹也不会出界。
+function clampX(x){ return Math.max(PAD, Math.min(x, stage.clientWidth - WIN_W - PAD)); }
+
+function animateWindow({from, to, zeta, response, label, overshootPad = 0}){
+  demoSpec.textContent = label;
+  cancelAnimationFrame(stageRaf);
+  win.style.transform = 'none';
+  const start = performance.now();
+  const total = settleTime(response, zeta) * 1.05 / speed;
+  // 给回弹预留空间，避免视觉上撞到边界
+  const targetX = Math.min(to.x, stage.clientWidth - WIN_W - PAD - overshootPad);
+  function frame(now){
+    const t = ((now - start)/1000) * speed;
+    const p = springValue(response, zeta, t);
+    const x = from.x + (targetX - from.x)*p;
+    const y = from.y + (to.y - from.y)*p;
+    win.style.left = Math.max(PAD, x) + 'px';
+    win.style.top = Math.max(4, y) + 'px';
+    if (now - start < total*1000) stageRaf = requestAnimationFrame(frame);
+    else { win.style.left = targetX+'px'; win.style.top = to.y+'px'; }
+  }
+  stageRaf = requestAnimationFrame(frame);
+}
+
+const HOME = {x: PAD, y: 40};
+function demoReset(){
+  cancelAnimationFrame(stageRaf);
+  win.style.transform = 'none';
+  win.style.left = HOME.x+'px'; win.style.top = HOME.y+'px';
+  demoSpec.textContent = '选一个动作，看它用的阻尼参数';
+}
+function demoDodge(){
+  animateWindow({from:HOME, to:{x: stage.clientWidth - WIN_W - PAD, y: 40},
+    zeta:1.30, response:0.30,
+    label:'躲避让位 · E 过阻尼 ζ=1.30 / 0.30s —— 最快贴上，绝不越过目标（越界会压到别人的窗口）'});
+}
+function demoMove(){
+  animateWindow({from:{x:PAD, y:40}, to:{x: stage.clientWidth*0.48, y:40},
+    zeta:0.86, response:0.30, overshootPad: 6,
+    label:'窗口移动 · B 轻阻尼 ζ=0.86 / 0.30s —— 收得住，1% 轻微回弹'});
+}
+function demoMorph(){
+  const s = settleTime(0.36, 0.68);
+  cancelAnimationFrame(stageRaf);
+  win.style.left = PAD+'px'; win.style.top = '40px';
+  demoSpec.textContent = '形态切换 · C 弹性 ζ=0.68 / 0.36s —— 尺寸回弹到 105% 再收 ';
+  win.animate(
+    [{transform:'scale(.62)'},{transform:'scale(1.05)'},{transform:'scale(1)'}],
+    {duration: (s*1000)/speed, easing:'linear', fill:'none'});
+}
+demoReset();
+
+// ── 真实过渡设计 ──
+const SIZES = {
+  expanded:{w:1020,h:640}, compact:{w:420,h:80},
+  capsule:{w:392,h:56}, edge:{w:300,h:34}, dormant:{w:26,h:72},
+};
+const SCALE = 0.55;
+
+const TRANSITIONS = [
+  {id:'grow', label:'展开 → expanded', from:'capsule', to:'expanded', curve:'C', zeta:0.68, response:0.40,
+   geoClamp:true, contentOvershoot:0.05,
+   why:'变大时几何绝不能过冲：目标框已贴着安全余量，超出就压窗口。弹性交给内容层表达。'},
+  {id:'shrink', label:'收缩 → 悬浮', from:'expanded', to:'capsule', curve:'C', zeta:0.68, response:0.34,
+   geoClamp:false, contentOvershoot:0.05,
+   why:'变小方向过冲是安全的（只会更小），所以几何可以真回弹，手感最"弹"。'},
+  {id:'swap', label:'悬浮互切 capsule ↔ compact', from:'capsule', to:'compact', curve:'C', zeta:0.68, response:0.30,
+   geoClamp:true, contentOvershoot:0.05,
+   why:'高频操作，回弹要短促；几何钳制避免擦到邻近窗口。'},
+  {id:'move', label:'同形态移动', from:'compact', to:'compact', curve:'B', zeta:0.86, response:0.30,
+   geoClamp:true, contentOvershoot:0,
+   why:'只是位置变化，1% 回弹就够了；多了会显得飘。'},
+  {id:'dodge', label:'躲避让位', from:'compact', to:'compact', curve:'E', zeta:1.30, response:0.26,
+   geoClamp:true, contentOvershoot:0,
+   why:'被动动作：最快贴上目标、绝不越过，也不该抢注意力。'},
+  {id:'hide', label:'隐匿 → dormant', from:'edge', to:'dormant', curve:'E', zeta:1.30, response:0.22,
+   geoClamp:true, contentOvershoot:0,
+   why:'消失在即，弹一下反而拖沓。'},
+  {id:'restore', label:'从隐匿恢复', from:'dormant', to:'capsule', curve:'B', zeta:0.86, response:0.32,
+   geoClamp:true, contentOvershoot:0.03,
+   why:'重新出现要有存在感，但别弹得夸张。'},
+];
+
+const tstage = document.getElementById('tstage');
+const twin = document.getElementById('twin');
+const tinner = document.getElementById('tinner');
+const tspec = document.getElementById('tspec');
+const treadout = document.getElementById('treadout');
+const tbuttons = document.getElementById('tbuttons');
+let traf;
+
+// 位置：让窗口在舞台里有可见的位移，同时始终留在边界内
+const ANCHOR = {expanded:{x:14,y:14}, compact:{x:70,y:150}, capsule:{x:96,y:170},
+                edge:{x:120,y:188}, dormant:{x:700,y:110}};
+
+function springClamped(response, zeta, t, clamp){
+  const v = springValue(response, zeta, t);
+  return clamp ? Math.min(v, 1) : v;
+}
+
+function playTransition(id){
+  const T = TRANSITIONS.find(x => x.id === id);
+  if (!T) return;
+  cancelAnimationFrame(traf);
+  const a = SIZES[T.from], b = SIZES[T.to];
+  const pa = ANCHOR[T.from], pb = ANCHOR[T.to];
+  const settle = settleTime(T.response, T.zeta);
+  const total = settle * 1.15;
+  const start = performance.now();
+  tspec.textContent = T.label + ' · ' + T.curve + ' ζ=' + T.zeta + ' / ' + T.response + 's';
+  treadout.textContent = '几何' + (T.geoClamp?'钳制':'可过冲') +
+    ' · 内容过冲 ' + Math.round(T.contentOvershoot*100) + '% · 稳定 ' + settle.toFixed(2) + 's';
+
+  function frame(now){
+    const t = ((now - start) / 1000) * speed;
+    const gp = springClamped(T.response, T.zeta, t, T.geoClamp);
+    const w = (a.w + (b.w - a.w) * gp) * SCALE;
+    const h = (a.h + (b.h - a.h) * gp) * SCALE;
+    const x = pa.x + (pb.x - pa.x) * gp;
+    const y = pa.y + (pb.y - pa.y) * gp;
+    // 几何夹在舞台内
+    const cw = tstage.clientWidth, ch = tstage.clientHeight;
+    const cx = Math.max(6, Math.min(x, cw - w - 6));
+    const cy = Math.max(6, Math.min(y, ch - h - 6));
+    twin.style.width = Math.max(w, 8) + 'px';
+    twin.style.height = Math.max(h, 8) + 'px';
+    twin.style.left = cx + 'px';
+    twin.style.top = cy + 'px';
+    // 内容层：放开过冲，这才是"有阻尼"的观感来源
+    const cp = springValue(T.response * 0.85, T.zeta, t);
+    const pulse = 1 + (cp - 1) * T.contentOvershoot / Math.max(1 - T.zeta, 0.12);
+    tinner.style.transform = 'scale(' + (1 + (pulse - 1) * 1.6).toFixed(4) + ')';
+    if (now - start < total * 1000) traf = requestAnimationFrame(frame);
+    else {
+      twin.style.width = (b.w*SCALE)+'px'; twin.style.height = (b.h*SCALE)+'px';
+      twin.style.left = Math.max(6, Math.min(pb.x, cw - b.w*SCALE - 6))+'px';
+      twin.style.top = Math.max(6, Math.min(pb.y, ch - b.h*SCALE - 6))+'px';
+      tinner.style.transform = 'scale(1)';
+    }
+  }
+  traf = requestAnimationFrame(frame);
+}
+
+TRANSITIONS.forEach(T => {
+  const btn = document.createElement('button');
+  btn.textContent = T.label;
+  btn.onclick = () => playTransition(T.id);
+  tbuttons.appendChild(btn);
+});
+
+(function fillTable(){
+  const tb = document.querySelector('#designTable tbody');
+  TRANSITIONS.forEach(T => {
+    const cls = T.curve === 'B' ? 'tagB' : T.curve === 'C' ? 'tagC' : 'tagE';
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + T.label + '</td>' +
+      '<td><span class="tag ' + cls + '">' + T.curve + '</span></td>' +
+      '<td>' + T.response.toFixed(2) + 's</td>' +
+      '<td>' + (T.geoClamp ? '钳制 0%' : '放开') + '</td>' +
+      '<td>' + (T.contentOvershoot ? Math.round(T.contentOvershoot*100)+'%' : '—') + '</td>' +
+      '<td style="color:var(--dim)">' + T.why + '</td>';
+    tb.appendChild(tr);
+  });
+})();
+
+// 复位到初始
+twin.style.width = (SIZES.capsule.w*SCALE)+'px';
+twin.style.height = (SIZES.capsule.h*SCALE)+'px';
+twin.style.left = ANCHOR.capsule.x+'px';
+twin.style.top = ANCHOR.capsule.y+'px';
+</script>
+</body>
+</html>

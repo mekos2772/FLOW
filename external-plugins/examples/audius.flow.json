@@ -1,0 +1,45 @@
+{
+  "schema": "flow-source-v1",
+  "id": "audius-open",
+  "name": "Audius (Open Music)",
+  "version": "1.0.0",
+  "allowedDomains": ["api.audius.co", "*.audius.co", "*.thestrangler.club", "*"],
+  "headers": {
+    "Accept": "application/json"
+  },
+  "discover": {
+    "method": "GET",
+    "url": "https://api.audius.co/v1/tracks/trending?limit={{limit}}&app_name=FLOW",
+    "itemsPath": "data",
+    "fields": {
+      "id": "id",
+      "title": "title",
+      "artist": "user.name|user.handle",
+      "album": "genre",
+      "duration": "duration",
+      "artwork": "artwork.480x480|artwork.150x150|cover_art",
+      "streamUrlTemplate": "https://api.audius.co/v1/tracks/{{id}}/stream?app_name=FLOW"
+    }
+  },
+  "search": {
+    "method": "GET",
+    "url": "https://api.audius.co/v1/tracks/search?query={{query}}&limit={{limit}}&app_name=FLOW",
+    "itemsPath": "data",
+    "fields": {
+      "id": "id",
+      "title": "title",
+      "artist": "user.name|user.handle",
+      "album": "genre",
+      "duration": "duration",
+      "artwork": "artwork.480x480|artwork.150x150|cover_art",
+      "streamUrlTemplate": "https://api.audius.co/v1/tracks/{{id}}/stream?app_name=FLOW"
+    }
+  },
+  "resolve": {
+    "mode": "direct",
+    "url": "https://api.audius.co/v1/tracks/{{id}}/stream?app_name=FLOW",
+    "codec": "MP3",
+    "fileExtension": "mp3",
+    "bitrate": 320000
+  }
+}

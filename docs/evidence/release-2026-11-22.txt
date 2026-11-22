@@ -1,0 +1,60 @@
+FLOW 发布收口验收记录
+日期：2026-11-22
+范围：播放竞态、队列身份、HTTP 音频联网门控、HLS 请求边界。
+未使用子代理。未上传、发布、签名公证或提交 git。
+
+1. 全量工程门禁
+命令：./Scripts/verify.sh
+结果：verify: OK
+  Executed 1267 tests, with 11 tests skipped and 0 failures
+  architecture-lint: OK
+  dead-code-scan: OK
+  Release 构建成功，warning: 0
+  check-doc-numbers: OK
+XCResult：/tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.22_16-57-10-+0800.xcresult
+日志：/tmp/slp-verify-tests.log、/tmp/slp-verify-release.log
+覆盖率：同一次结果，详见 coverage.txt；并未用后续小范围专项覆盖全量覆盖率快照。
+
+2. 真实音频及联网专项
+环境：TEST_RUNNER_SLP_LIVE_TEST=1 TEST_RUNNER_SLP_AUDIO_TEST=1
+执行：xcodebuild test -workspace SpatialLyricsPlayer.xcworkspace -scheme SpatialLyricsPlayer
+      -destination 'platform=macOS,arch=arm64' -derivedDataPath /tmp/slp-verify
+      -only-testing:SpatialLyricsPlayerTests/AudioPipelineOptionalTests
+      -only-testing:SpatialLyricsPlayerTests/MultiConfigCompatTests
+      -only-testing:SpatialLyricsPlayerTests/GitHubSourceDiscoveryTests/testLiveGitHubSearchAndInspectRealAPI
+      -only-testing:SpatialLyricsPlayerTests/VoiceModelFetchAndMirrorTests/testLiveHFMirrorDiscoveryAndInspect
+      CODE_SIGNING_ALLOWED=NO
+结果：15 tests、0 skipped、0 failures，TEST SUCCEEDED。
+包含：
+  AudioPipelineOptionalTests：1 条，现场生成音频，真实 play 位置推进 / pause 位置冻结，全程静音。
+  GitHubSourceDiscoveryTests：1 条，GitHub 实网搜索与配置探测。
+  MultiConfigCompatTests：12 条，其中 2 条实网；覆盖跨仓库插件与开放 API 搜索/发现/歌词/解码，含 CCTV HLS 受控链路。
+  VoiceModelFetchAndMirrorTests：1 条，HF-Mirror 实网仓库发现与可运行音色文件解析。
+XCResult：/tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.22_17-00-51-+0800.xcresult
+日志：/tmp/flow-release-live-tests.log
+说明：实际调用曾额外指定一个不存在的 RealExternalLyricsTests 名称，Xcode 忽略了该选择器；上面列出的 15 条均实际执行。歌词实网随后用正确的 LRCLIBLiveTests 名称单独补跑，未将缺失选择器当作通过。
+
+3. LRCLIB 实网专项
+环境：TEST_RUNNER_SLP_LIVE_TEST=1
+执行：相同 xcodebuild 参数，-only-testing:SpatialLyricsPlayerTests/LRCLIBLiveTests
+结果：1 test、0 skipped、0 failures，TEST SUCCEEDED。
+XCResult：/tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.22_17-02-15-+0800.xcresult
+日志：/tmp/flow-release-lyrics-live.log
+
+4. 本轮新增回归
+PlaybackReleaseTests：12 条，覆盖受控挂起的切歌/停止/旧事件/取消、自然续播取消隔离、seek 期间结束、单曲循环手动切歌、重复搜索与恢复身份、补全 ID、替换列表。
+HLSResourceTests：12 条，覆盖多级列表/分片/KEY/MAP、越域/重定向拒绝、关闭联网、HMAC 路由篡改、Range、跨域秘密头、大小上限、动态网络扩展拒绝、CDN 地址分类、普通音频联网门控，以及真实 AVPlayer 静音 HLS 起播和位置推进。
+早期全量回归曾发现跨域头残留、状态机矩阵未更新、超大响应夹具长度不符；均已修正并由第 1 项全量门禁复验通过。
+
+5. 分发状态
+本机签名身份：0 valid identities。
+旧 dist/SpatialLyricsPlayer.app：ad-hoc，spctl rejected，无 stapled ticket。
+旧 DMG 的 hdiutil verify 与 App codesign --verify --deep --strict 通过，但均早于本轮源码修复。
+本轮 Release 产物：/tmp/slp-release/Build/Products/Release/SpatialLyricsPlayer.app（CODE_SIGNING_ALLOWED=NO）。
+未把旧 DMG 冒充本轮候选包；正式分发仍须证书、公证、重打包与最终安装验收。
+HLS 新增 network.server entitlement，已通过 plutil 格式检查；正式沙盒签名环境尚待验证。
+
+6. 未执行与剩余风险
+XCUITest、签名环境的小组件/开机启动、最终包首次使用人工验收、有声听感与耳机/多屏/睡眠等硬件验收未执行。
+FLOW Voice 全曲含伴奏人工试听未执行；本轮 HF 检索通过不代表下载/合成/听感全链路通过。
+其余 P2/P3 与同步 JS 死循环、订阅导入、持久化及缓存完整性边界仍开放，详见 KNOWN_LIMITATIONS.md。

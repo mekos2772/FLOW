@@ -90,6 +90,44 @@ enum ORTError: Error, LocalizedError, Sendable {
     }
 }
 
+/// 进程退出保护：退出时 ONNX Runtime 的全局对象会被析构，这时若还有线程在它里面加载模型或推理，
+/// 就会段错误（实际踩到过：进程退出的瞬间，后台的音色包自动导入正在 `CreateSession`）。
+/// 所以进出 ORT 的调用都在这里记数；退出钩子先拦住新调用，再等在途的调用收尾（最多 3 秒）。
+enum ORTActivity {
+    private struct State: Sendable {
+        var inFlight = 0
+        var exiting = false
+    }
+
+    private static let state = OSAllocatedUnfairLock(initialState: State())
+    static let maximumExitWait: TimeInterval = 3
+
+    /// 进入一次 ORT 调用；进程已在退出时直接按取消处理。
+    static func begin() throws {
+        try state.withLock { state in
+            if state.exiting { throw ORTError.cancelled }
+            state.inFlight += 1
+        }
+    }
+
+    static func end() {
+        state.withLock { $0.inFlight -= 1 }
+    }
+
+    /// 注册退出钩子。要在 ORT 加载之后注册：`atexit` 后注册的先执行，这样它排在 ORT 自己的析构之前。
+    static func installExitGuard() {
+        atexit { ORTActivity.drainBeforeExit() }
+    }
+
+    static func drainBeforeExit() {
+        state.withLock { $0.exiting = true }
+        let deadline = Date().addingTimeInterval(maximumExitWait)
+        while state.withLock({ $0.inFlight }) > 0, Date() < deadline {
+            usleep(20_000)
+        }
+    }
+}
+
 /// 进程级单例 OrtEnv 持有器（线程安全；初始化失败时抛出错误而非崩溃整个播放器）。
 final class ORTEnvironment: @unchecked Sendable {
     private static let sharedResult: Result<ORTEnvironment, Error> = Result {
@@ -136,6 +174,7 @@ final class ORTEnvironment: @unchecked Sendable {
             throw ORTError.statusFailure(operation: "CreateCpuMemoryInfo", message: "null OrtMemoryInfo")
         }
         self.memoryInfo = memInfo
+        ORTActivity.installExitGuard()
     }
 
     deinit {
@@ -188,7 +227,6 @@ final class ORTSession: @unchecked Sendable {
     private let allowCPUFallback: Bool
     private var isUsingCoreML: Bool
     private let runLock = NSLock()
-    private let cancelState = OSAllocatedUnfairLock<CancelState>(initialState: CancelState())
 
     private struct SendableOpaquePointer: @unchecked Sendable, Equatable {
         let raw: OpaquePointer
@@ -197,6 +235,36 @@ final class ORTSession: @unchecked Sendable {
     private struct CancelState: Sendable {
         var cancelled = false
         var activeRunOptions: SendableOpaquePointer?
+    }
+
+    /// 单次 Run 的取消令牌。每次调用各持一份：同一个会话被多路并发调用（分块并行合成时共享 HuBERT）
+    /// 也不会互相覆盖取消状态。终止与解绑都在同一把锁里做，RunOptions 不会在被终止的同时被释放。
+    private final class RunToken: Sendable {
+        private let state = OSAllocatedUnfairLock<CancelState>(initialState: CancelState())
+
+        var isCancelled: Bool { state.withLock { $0.cancelled } }
+
+        /// 绑定本次 Run 的 RunOptions；返回绑定前是否已被取消。
+        func attach(_ options: SendableOpaquePointer) -> Bool {
+            state.withLock { state in
+                state.activeRunOptions = options
+                return state.cancelled
+            }
+        }
+
+        func detach() {
+            state.withLock { $0.activeRunOptions = nil }
+        }
+
+        func cancel(api: UnsafePointer<OrtApi>) {
+            state.withLockUnchecked { state in
+                state.cancelled = true
+                guard let options = state.activeRunOptions else { return }
+                if let status = api.pointee.RunOptionsSetTerminate(options.raw) {
+                    api.pointee.ReleaseStatus(status)
+                }
+            }
+        }
     }
 
     /// 加载 ONNX 模型；若请求 CoreML 且挂载或构建图失败，可自动回退 CPU EP。
@@ -263,16 +331,13 @@ final class ORTSession: @unchecked Sendable {
         try Task.checkCancellation()
         let resolvedOutputs = outputNames ?? outputInfos.map(\.name)
 
-        cancelState.withLock { state in
-            state.cancelled = false
-            state.activeRunOptions = nil
-        }
+        let token = RunToken()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let thread = Thread { [self] in
                     do {
-                        let result = try self.runSync(inputs: inputs, outputNames: resolvedOutputs)
+                        let result = try self.runSync(inputs: inputs, outputNames: resolvedOutputs, token: token)
                         continuation.resume(returning: result)
                     } catch {
                         continuation.resume(throwing: error)
@@ -283,19 +348,7 @@ final class ORTSession: @unchecked Sendable {
                 thread.start()
             }
         } onCancel: { [self] in
-            self.cancelActiveRun()
-        }
-    }
-
-    func cancelActiveRun() {
-        let optsToTerminate: SendableOpaquePointer? = cancelState.withLock { state in
-            state.cancelled = true
-            return state.activeRunOptions
-        }
-        if let optsToTerminate {
-            if let st = env.api.pointee.RunOptionsSetTerminate(optsToTerminate.raw) {
-                env.api.pointee.ReleaseStatus(st)
-            }
+            token.cancel(api: env.api)
         }
     }
 
@@ -304,6 +357,16 @@ final class ORTSession: @unchecked Sendable {
         inputs: [String: ORTTensorInput],
         outputNames: [String]? = nil
     ) throws -> [String: ORTTensorOutput] {
+        try runSync(inputs: inputs, outputNames: outputNames, token: RunToken())
+    }
+
+    private func runSync(
+        inputs: [String: ORTTensorInput],
+        outputNames: [String]?,
+        token: RunToken
+    ) throws -> [String: ORTTensorOutput] {
+        try ORTActivity.begin()
+        defer { ORTActivity.end() }
         runLock.lock()
         defer { runLock.unlock() }
 
@@ -317,18 +380,11 @@ final class ORTSession: @unchecked Sendable {
         }
         let boxedRunOpts = SendableOpaquePointer(raw: runOptions)
         defer {
-            cancelState.withLock { state in
-                if state.activeRunOptions == boxedRunOpts {
-                    state.activeRunOptions = nil
-                }
-            }
+            token.detach()
             api.pointee.ReleaseRunOptions(boxedRunOpts.raw)
         }
 
-        let alreadyCancelled = cancelState.withLock { state -> Bool in
-            state.activeRunOptions = boxedRunOpts
-            return state.cancelled
-        }
+        let alreadyCancelled = token.attach(boxedRunOpts)
         if alreadyCancelled || Task.isCancelled {
             throw ORTError.cancelled
         }
@@ -452,8 +508,7 @@ final class ORTSession: @unchecked Sendable {
                 outputVals: &ortOutputValues
             )
         } catch let ortErr as ORTError {
-            let wasCancelled = cancelState.withLock { $0.cancelled }
-            if wasCancelled || Task.isCancelled {
+            if token.isCancelled || Task.isCancelled {
                 throw ORTError.cancelled
             }
             guard allowCPUFallback, isUsingCoreML else {
@@ -589,6 +644,8 @@ final class ORTSession: @unchecked Sendable {
         intraOpThreads: Int32
     ) throws -> (OpaquePointer, String) {
         let env = try ORTEnvironment.acquire()
+        try ORTActivity.begin()
+        defer { ORTActivity.end() }
         let api = env.api
         var opts: OpaquePointer?
         try env.check(api.pointee.CreateSessionOptions(&opts), operation: "CreateSessionOptions")

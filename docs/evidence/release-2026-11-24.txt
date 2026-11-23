@@ -1,0 +1,34 @@
+FLOW 0.1.4 发布记录
+日期：2026-11-24
+范围：歌词标题匹配、FLOW Voice 设备分配与合成器并行、进程退出保护、各处"自动获取"的问题修复。
+版本：0.1.4 (5)（工程 MARKETING_VERSION / CURRENT_PROJECT_VERSION 同步上调）。
+
+1. 门禁
+命令：./Scripts/verify.sh（00:40 左右，沿用 /tmp/slp-verify 的 derivedData，不是干净目录）
+结果：Executed 1356 tests, with 15 tests skipped and 0 failures；verify.sh 未报测试进程崩溃/重启
+  architecture-lint: OK；dead-code-scan: OK；Release 构建 0 警告；check-doc-numbers: OK
+  新增回归：LyricTitleMatchingTests（14 条）、VoiceAutoFetchTests（4 条）、合成器并行布局 1 条。
+
+2. 实测数字（M4 / 16GB / ONNX Runtime 1.32）
+- 歌词：39 条真实曲库标题接 LRCLIB，旧流程命中 11 条，新流程 20 条。
+- FLOW Voice：255 秒人声，转换阶段 279s → 237s（2 路 × 4 线程）；各模型设备耗时见 docs/FLOW_VOICE.md「设备分配」。
+- Internet Archive：热门 6 个条目，旧地址 {{id}}/{{id}}.mp3 全部 404；新地址 format=VBR+MP3 全部取到 audio/mpeg（curl）。
+- 精选角色仓库文件列表（HuggingFace API）：tomori.pth/.index、anon.pth/.index、
+  uma-Matikane_Tannhauser.pth + added_IVF1310_Flat_nprobe_1_uma-Matikane_Tannhauser_v2.index。
+
+3. 安装包
+产物：./Scripts/package-release.sh → dist/FLOW-0.1.4-arm64.dmg（18,758,223 字节，UDZO，hdiutil verify VALID）
+SHA-256：dafd60ab157aef1653a500e9315ca11befb44ed1efad1f7a37b5cb9165288d5a
+只读挂载后核对：codesign --verify --deep --strict 通过；CFBundleShortVersionString 0.1.4 / CFBundleVersion 5；
+  arm64；Resources 含 ONNXRuntime-LICENSE.txt 与 ONNXRuntime-ThirdPartyNotices.txt。
+
+4. 未验证
+- 这个安装包没有在本机替换安装，也没有启动冒烟。
+- GitHub 仓库里 Git LFS 模型改走 media.githubusercontent.com：只有单元测试，没有拿真实仓库下载过。
+- Internet Archive 新地址只用 curl 核对过，没有在应用里实际播放。
+- 关掉联网中止在途下载、取消后清理临时文件、面板「重试」：没有专门的测试。
+- 联网集成测试（verify.sh --live）本次没有跑。
+
+5. 发布
+- GitHub：https://github.com/mekos2772/FLOW （main）
+- Release：https://github.com/mekos2772/FLOW/releases/tag/v0.1.4 ，资产 FLOW-0.1.4-arm64.dmg

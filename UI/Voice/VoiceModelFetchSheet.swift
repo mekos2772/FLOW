@@ -377,7 +377,8 @@ struct VoiceModelFetchSheet: View {
         let voice = app?.voice
         let isDownloading = voice?.downloadingRemoteModelIDs.contains(file.id) ?? false
         let progress = voice?.remoteModelDownloadProgress[file.id] ?? 0
-        let isImported = importedFileIDs.contains(file.id)
+        // 以前导入过的（含从「精选」下载的同一个文件）也算，免得再下一遍变成两个一样的音色。
+        let isImported = importedFileIDs.contains(file.id) || voice?.importedPack(for: file) != nil
 
         return HStack(spacing: Spacing.s) {
             VStack(alignment: .leading, spacing: 2) {
@@ -441,6 +442,9 @@ struct VoiceModelFetchSheet: View {
                     } else if discoveryUnreachable {
                         Text("暂时连不上 HuggingFace，先显示内置的音色。")
                             .flowType(.caption).foregroundStyle(.secondary)
+                        FlowTextButton(title: "重试", symbolName: "arrow.clockwise") {
+                            discoverOnlineVoices()
+                        }
                     }
                     Spacer(minLength: 0)
                     if showsTranslateButton {
@@ -643,6 +647,8 @@ struct VoiceModelFetchSheet: View {
             guard !Task.isCancelled else { return }
             isDiscovering = false
             discoveryUnreachable = !result.reachable
+            // 没连上的这次不算数：留着「重试」，网络恢复后不用关掉面板重开。
+            if !result.reachable { hasDiscovered = false }
             onlineVoices = OnlineVoiceCatalog.merged(seed: OnlineVoiceCatalog.seedFiles, discovered: result.files)
         }
     }
@@ -665,7 +671,8 @@ struct VoiceModelFetchSheet: View {
 
     private func curatedCard(_ item: CuratedVoice) -> some View {
         let voice = app?.voice
-        let existingPack = voice?.packs.first { $0.displayName == item.displayName }
+        // 按模型指纹认，用户给音色改了名也显示「已导入」。
+        let existingPack = voice?.importedPack(for: item)
         let ready = CuratedVoiceCatalog.hasLocalPack(for: item)
         let importing = importingCuratedID == item.id
 
@@ -705,7 +712,7 @@ struct VoiceModelFetchSheet: View {
                     Spacer(minLength: 0)
                     FlowTextButton(title: "使用", symbolName: "play.circle") {
                         voice?.selectPack(pack.packID)
-                        statusMessage = String(localized: "已切换到音色：\(item.displayName)")
+                        statusMessage = String(localized: "已切换到音色：\(pack.displayName)")
                     }
                 } else if ready {
                     FlowTextButton(title: "导入", symbolName: "arrow.down.circle") {
@@ -751,37 +758,17 @@ struct VoiceModelFetchSheet: View {
 
     /// 下载目录里已经放好的音色包直接导入，不必再逐张点「导入」。
     ///
-    /// 只扫精选清单里列出的那几个文件夹：下载目录是用户的公共目录，不按白名单读会顺带
-    /// 碰用户自己的其它文件。已导入的按 `importPack` 的指纹幂等直接命中，不重复拷贝。
+    /// 每份转换结果只自动导入一次，也不改当前选中的音色（见 `VoiceManager.autoImportPreparedPacks`）。
     private func autoImportPreparedPacks() {
         guard !hasAutoImportedPacks else { return }
         hasAutoImportedPacks = true
         guard let voice = app?.voice else { return }
-        let pending = CuratedVoiceCatalog.all.filter { item in
-            CuratedVoiceCatalog.hasLocalPack(for: item)
-                && !voice.packs.contains { $0.displayName == item.displayName }
-        }
-        guard !pending.isEmpty else { return }
-
         Task {
-            var imported: [String] = []
-            var firstError: String?
-            for item in pending {
-                do {
-                    let manifest = try await voice.importPack(
-                        weightURL: CuratedVoiceCatalog.localPackURL(for: item),
-                        displayName: item.displayName
-                    )
-                    imported.append(manifest.displayName)
-                    onImported(manifest)
-                } catch {
-                    if firstError == nil { firstError = error.localizedDescription }
-                }
-            }
-            if !imported.isEmpty {
-                autoImportSummary = String(localized: "已自动导入：\(imported.joined(separator: "、"))")
-            }
-            if let firstError, imported.isEmpty {
+            let result = await voice.autoImportPreparedPacks()
+            for manifest in result.imported { onImported(manifest) }
+            if !result.imported.isEmpty {
+                autoImportSummary = String(localized: "已自动导入：\(result.imported.map(\.displayName).joined(separator: "、"))")
+            } else if let firstError = result.firstError {
                 autoImportSummary = firstError
             }
         }
@@ -792,19 +779,8 @@ struct VoiceModelFetchSheet: View {
     /// `.pth` 是 pickle 文件，解析它等于执行任意代码，所以应用自身不解包；
     /// 转换放在终端里由用户明确执行一次，转换结果再自动导入。
     private func copyConversionCommand(for item: CuratedVoice) {
-        let repo = item.sourceRepo
-        let commands = """
-        # \(item.displayName)：先下载训练权重，再转成音色包
-        curl -L -o ~/Downloads/\(item.id).pth  "https://huggingface.co/\(repo)/resolve/main/\(item.id).pth"
-        curl -L -o ~/Downloads/\(item.id).index "https://huggingface.co/\(repo)/resolve/main/\(item.id).index"
-        python3 Tools/rvc-converter/convert_to_voicepack.py \\
-          --pth ~/Downloads/\(item.id).pth \\
-          --index ~/Downloads/\(item.id).index \\
-          --name "\(item.displayName)" \\
-          --output ~/Downloads/FLOW-VoicePacks
-        """
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(commands, forType: .string)
+        NSPasteboard.general.setString(CuratedVoiceCatalog.conversionCommand(for: item), forType: .string)
     }
 
     private func importCurated(_ item: CuratedVoice) {
@@ -815,10 +791,7 @@ struct VoiceModelFetchSheet: View {
         Task {
             defer { importingCuratedID = nil }
             do {
-                let manifest = try await voice.importPack(
-                    weightURL: CuratedVoiceCatalog.localPackURL(for: item),
-                    displayName: item.displayName
-                )
+                let manifest = try await voice.importPreparedPack(item)
                 statusMessage = String(localized: "已导入音色：\(manifest.displayName)")
                 onImported(manifest)
             } catch {
@@ -923,6 +896,9 @@ struct VoiceModelFetchSheet: View {
         let platform: VoiceModelSearchPlatform = (selectedTab == .github) ? .github : .huggingFace
         let q = searchQuery
         searchTask?.cancel()
+        // 上一次检索选中的仓库还在读文件列表：一并取消，别让旧仓库的音色冒到新结果里。
+        inspectTask?.cancel()
+        isInspectingRepo = false
         isSearching = true
         hasSearched = true
         errorMessage = nil

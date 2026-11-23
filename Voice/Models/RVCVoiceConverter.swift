@@ -1,25 +1,29 @@
 import Foundation
+import os
 
 /// 原生 RVC ONNX 语音合成管道（对齐 `rvc/modules/vc/pipeline.py` 分段零过零切分、RMS 匹配与参数生效）。
 final class RVCVoiceConverter: @unchecked Sendable {
     private let rmvpe = RMVPEPitchExtractor()
     private let hubert = HuBERTFeatureExtractor()
 
-    private var cachedVoiceSession: ORTSession?
+    private var cachedVoiceSessions: [ORTSession] = []
     private var cachedVoicePath: String?
     private var cachedVoiceProvider: ORTExecutionProvider?
+    private var cachedVoiceThreads: Int32 = 0
 
     private var cachedIndex: F32VectorIndex?
     private var cachedIndexPath: String?
     private let lock = NSLock()
+    private let indexSearchLock = NSLock()
 
     func unloadAll() {
         rmvpe.unload()
         hubert.unload()
         lock.lock()
-        cachedVoiceSession = nil
+        cachedVoiceSessions = []
         cachedVoicePath = nil
         cachedVoiceProvider = nil
+        cachedVoiceThreads = 0
         cachedIndex = nil
         cachedIndexPath = nil
         lock.unlock()
@@ -31,6 +35,39 @@ final class RVCVoiceConverter: @unchecked Sendable {
         let filterRadius: Int
         let rmsMixRate: Float
         let protect: Float
+    }
+
+    /// 合成阶段的并行布局：开几路合成器、每路几个线程。
+    struct SynthesisLayout: Sendable, Equatable {
+        let workers: Int
+        let threadsPerWorker: Int32
+    }
+
+    /// 单路合成器在最长分块（约 26 秒）上的峰值内存，M4 实测约 2.2GB。
+    private static let synthesisPeakBytesPerWorker: UInt64 = 2_200_000_000
+
+    /// 按核心数与内存挑最快的布局。
+    ///
+    /// M4（4 性能核 + 6 能效核）上每 20 秒分块的实测耗时：1 路 4 线程 7.5–9.7s、1 路 8 线程 7.4s、
+    /// 2 路 4 线程 6.9s、3 路 3 线程 6.0s、4 路 2 线程 6.5s。合成器搬到 CoreML/GPU 反而要 36–200s，所以只在 CPU 上并行。
+    /// 每多一路就多占约 2.2GB，所以路数还受物理内存约束（合计不超过三分之一），不够就退回单路多线程：
+    /// 8GB 机器 1 路，16GB 机器 2 路，24GB 及以上 3 路。
+    static func synthesisLayout(
+        chunkCount: Int,
+        cores: Int = ProcessInfo.processInfo.activeProcessorCount,
+        physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory
+    ) -> SynthesisLayout {
+        let cores = max(cores, 1)
+        let memoryCap = Int(physicalMemory / 3 / synthesisPeakBytesPerWorker)
+        let workers = max(1, min(3, chunkCount, cores / 3, memoryCap))
+        let threads = workers == 1 ? min(8, cores) : max(2, min(4, cores / workers))
+        return SynthesisLayout(workers: workers, threadsPerWorker: Int32(threads))
+    }
+
+    private struct ChunkPlan: Sendable {
+        let audio: [Float]
+        let pitchCoarse: [Int64]?
+        let pitchFloat: [Float]?
     }
 
     /// 执行纯原生 RVC 推理，返回 `(samples: [Float], sampleRate: Int)`。
@@ -46,7 +83,8 @@ final class RVCVoiceConverter: @unchecked Sendable {
         interChannels: Int,
         params: Parameters,
         provider: ORTExecutionProvider,
-        stageHandler: @Sendable (VoiceTaskStage, Double, String?) -> Void
+        synthesisLayout layoutOverride: SynthesisLayout? = nil,
+        stageHandler: @escaping @Sendable (VoiceTaskStage, Double, String?) -> Void
     ) async throws -> (samples: [Float], sampleRate: Int) {
         try Task.checkCancellation()
         stageHandler(.decode, 0.0, "正在解码人声音频")
@@ -128,9 +166,35 @@ final class RVCVoiceConverter: @unchecked Sendable {
             pitchFloat = extracted.continuous
         }
 
-        // 动态长序列 Transformer (HuBERT) 与 NSF-HiFiGAN 合成器直接走 ARM64 CPU/AMX，
-        // 避免 CoreML E5RT 动态图分段 90+ 次编译失败后再回退的数秒开销；RMVPE/MDX 则保持 CoreML ANE 加速。
-        let voiceSession = try loadVoiceSessionIfNeeded(modelURL: voiceModelURL, provider: .cpu)
+        // 先把整段人声切成分块计划（切点与原先完全一致），再多路并行合成。
+        var plans: [ChunkPlan] = []
+        var startSample = 0
+        for cutSample in optTs {
+            let endInPad = min(cutSample + tPad2 + window, audioPad.count)
+            let frameStart = startSample / window
+            let frameEnd = min((cutSample + tPad2) / window, totalPLen)
+            plans.append(ChunkPlan(
+                audio: Array(audioPad[startSample..<endInPad]),
+                pitchCoarse: hasF0 ? Array(pitchCoarse[frameStart..<frameEnd]) : nil,
+                pitchFloat: hasF0 ? Array(pitchFloat[frameStart..<frameEnd]) : nil
+            ))
+            startSample = cutSample
+        }
+        let finalFrameStart = startSample / window
+        plans.append(ChunkPlan(
+            audio: Array(audioPad[startSample..<audioPad.count]),
+            pitchCoarse: hasF0 ? Array(pitchCoarse[finalFrameStart..<totalPLen]) : nil,
+            pitchFloat: hasF0 ? Array(pitchFloat[finalFrameStart..<totalPLen]) : nil
+        ))
+
+        // 各模型按实测最快的设备分配（M4）：MDX 分离走 CoreML/GPU；RMVPE、HuBERT 与 NSF-HiFiGAN 合成器走 CPU。
+        // 后三者输入长度是动态的：HuBERT 与合成器在 CoreML 上建图失败，RMVPE 能跑但比 CPU 慢 2–10 倍；
+        // 合成器即使固定形状搬上 GPU 也比 CPU 慢 5–20 倍。合成器是耗时大头，所以在 CPU 上开多路并行。
+        let layout = layoutOverride ?? Self.synthesisLayout(chunkCount: plans.count)
+        let voiceSessions = try loadVoiceSessionsIfNeeded(modelURL: voiceModelURL, provider: .cpu, layout: layout)
+        // 每路合成器跑完会留着约 2GB 的工作内存，任务结束只保留一路给下一首复用。
+        defer { trimVoiceSessionCache(keeping: 1) }
+
         let index: F32VectorIndex?
         if let indexURL, params.indexRate > 0, FileManager.default.fileExists(atPath: indexURL.path) {
             index = try loadIndexIfNeeded(url: indexURL)
@@ -139,62 +203,67 @@ final class RVCVoiceConverter: @unchecked Sendable {
         }
 
         stageHandler(.convert, 0.25, "正在合成目标音色")
-        var renderedChunks: [Float] = []
-        var startSample = 0
-        let totalChunks = optTs.count + 1
-        var chunkIdx = 0
+        let chunkPlans = plans
+        let totalChunks = chunkPlans.count
+        let nextChunk = OSAllocatedUnfairLock(initialState: 0)
+        let finishedChunks = OSAllocatedUnfairLock(initialState: 0)
+        let indexRate = params.indexRate
+        let protect = params.protect
 
-        for cutSample in optTs {
-            try Task.checkCancellation()
-            let endInPad = min(cutSample + tPad2 + window, audioPad.count)
-            let chunkAudio = Array(audioPad[startSample..<endInPad])
-            let frameStart = startSample / window
-            let frameEnd = min((cutSample + tPad2) / window, totalPLen)
-
-            let subPitch = hasF0 ? Array(pitchCoarse[frameStart..<frameEnd]) : nil
-            let subPitchF = hasF0 ? Array(pitchFloat[frameStart..<frameEnd]) : nil
-
-            let syn = try await inferChunk(
-                audioSlice: chunkAudio,
-                pitchCoarse: subPitch,
-                pitchFloat: subPitchF,
-                hasF0: hasF0,
-                embeddingDim: embeddingDim,
-                interChannels: interChannels,
-                index: index,
-                indexRate: params.indexRate,
-                protect: params.protect,
-                hubertURL: hubertURL,
-                provider: .cpu,
-                voiceSession: voiceSession
-            )
-            trimAndAppend(syn, tPadTgt: tPadTgt, into: &renderedChunks)
-            startSample = cutSample
-            chunkIdx += 1
-            stageHandler(.convert, 0.25 + 0.65 * (Double(chunkIdx) / Double(totalChunks)), nil)
+        // 每路从共享游标领下一块；HuBERT 会话各路共用（每块不到 1 秒，由会话内部串行）。
+        let synthesized = try await withThrowingTaskGroup(of: [(Int, [Float])].self) { group in
+            for voiceSession in voiceSessions {
+                group.addTask { [self] in
+                    var produced: [(Int, [Float])] = []
+                    while true {
+                        try Task.checkCancellation()
+                        let chunkIndex = nextChunk.withLock { next -> Int in
+                            defer { next += 1 }
+                            return next
+                        }
+                        guard chunkIndex < totalChunks else { break }
+                        let plan = chunkPlans[chunkIndex]
+                        let syn = try await inferChunk(
+                            audioSlice: plan.audio,
+                            pitchCoarse: plan.pitchCoarse,
+                            pitchFloat: plan.pitchFloat,
+                            hasF0: hasF0,
+                            embeddingDim: embeddingDim,
+                            interChannels: interChannels,
+                            index: index,
+                            indexRate: indexRate,
+                            protect: protect,
+                            hubertURL: hubertURL,
+                            provider: .cpu,
+                            voiceSession: voiceSession
+                        )
+                        produced.append((chunkIndex, syn))
+                        let done = finishedChunks.withLock { count -> Int in
+                            count += 1
+                            return count
+                        }
+                        stageHandler(.convert, 0.25 + 0.65 * (Double(done) / Double(totalChunks)), nil)
+                    }
+                    return produced
+                }
+            }
+            var ordered = [[Float]?](repeating: nil, count: totalChunks)
+            for try await batch in group {
+                for (chunkIndex, syn) in batch {
+                    ordered[chunkIndex] = syn
+                }
+            }
+            return ordered
         }
 
-        // 最后一段
-        try Task.checkCancellation()
-        let finalAudio = Array(audioPad[startSample..<audioPad.count])
-        let finalFrameStart = startSample / window
-        let finalPitch = hasF0 ? Array(pitchCoarse[finalFrameStart..<totalPLen]) : nil
-        let finalPitchF = hasF0 ? Array(pitchFloat[finalFrameStart..<totalPLen]) : nil
-        let finalSyn = try await inferChunk(
-            audioSlice: finalAudio,
-            pitchCoarse: finalPitch,
-            pitchFloat: finalPitchF,
-            hasF0: hasF0,
-            embeddingDim: embeddingDim,
-            interChannels: interChannels,
-            index: index,
-            indexRate: params.indexRate,
-            protect: params.protect,
-            hubertURL: hubertURL,
-            provider: .cpu,
-            voiceSession: voiceSession
-        )
-        trimAndAppend(finalSyn, tPadTgt: tPadTgt, into: &renderedChunks)
+        // 按原顺序拼接，结果与串行合成的分块一一对应。
+        var renderedChunks: [Float] = []
+        for syn in synthesized {
+            guard let syn else {
+                throw VoiceError.inferenceFailed("RVC 分块合成结果缺失")
+            }
+            trimAndAppend(syn, tPadTgt: tPadTgt, into: &renderedChunks)
+        }
         stageHandler(.convert, 0.92, nil)
 
         if params.rmsMixRate < 0.999 && !renderedChunks.isEmpty {
@@ -244,11 +313,15 @@ final class RVCVoiceConverter: @unchecked Sendable {
 
         var blendedFeats = rawFeats
         if let index, indexRate > 0 {
-            blendedFeats = try index.searchAndBlend(
-                features: rawFeats,
-                frameCount: hubertFrames,
-                rate: indexRate
-            )
+            // 检索要临时开一张「帧数 × 索引行数」的点积表（9 万行索引约 0.4GB），Accelerate 自己已是多线程，
+            // 各路排队做，免得同时开好几张。
+            blendedFeats = try indexSearchLock.withLock {
+                try index.searchAndBlend(
+                    features: rawFeats,
+                    frameCount: hubertFrames,
+                    rate: indexRate
+                )
+            }
         }
 
         // 沿时间轴 2x 最近邻插值：frames -> frames * 2
@@ -348,23 +421,40 @@ final class RVCVoiceConverter: @unchecked Sendable {
         return out
     }
 
-    private func loadVoiceSessionIfNeeded(modelURL: URL, provider: ORTExecutionProvider) throws -> ORTSession {
+    /// 按布局准备好若干路合成器会话；同一音色、同一线程数的已有会话直接复用，不够再补。
+    private func loadVoiceSessionsIfNeeded(
+        modelURL: URL,
+        provider: ORTExecutionProvider,
+        layout: SynthesisLayout
+    ) throws -> [ORTSession] {
         let effectiveURL = (try? ONNXSineGenSanitizer.sanitizeIfNeeded(modelURL: modelURL)) ?? modelURL
         lock.lock()
         defer { lock.unlock() }
-        if let cachedVoiceSession, cachedVoicePath == modelURL.path, cachedVoiceProvider == provider {
-            return cachedVoiceSession
+        let reusable = cachedVoicePath == modelURL.path
+            && cachedVoiceProvider == provider
+            && cachedVoiceThreads == layout.threadsPerWorker
+        var sessions = reusable ? Array(cachedVoiceSessions.prefix(layout.workers)) : []
+        while sessions.count < layout.workers {
+            sessions.append(try ORTSession(
+                modelURL: effectiveURL,
+                provider: provider,
+                intraOpThreads: layout.threadsPerWorker,
+                allowCPUFallback: true
+            ))
         }
-        let session = try ORTSession(
-            modelURL: effectiveURL,
-            provider: provider,
-            intraOpThreads: 4,
-            allowCPUFallback: true
-        )
-        cachedVoiceSession = session
+        cachedVoiceSessions = sessions
         cachedVoicePath = modelURL.path
         cachedVoiceProvider = provider
-        return session
+        cachedVoiceThreads = layout.threadsPerWorker
+        return sessions
+    }
+
+    private func trimVoiceSessionCache(keeping count: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        if cachedVoiceSessions.count > count {
+            cachedVoiceSessions.removeLast(cachedVoiceSessions.count - count)
+        }
     }
 
     private func loadIndexIfNeeded(url: URL) throws -> F32VectorIndex {

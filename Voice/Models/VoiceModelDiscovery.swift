@@ -224,6 +224,9 @@ final class VoiceModelDiscovery: Sendable {
         let stagingDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-import-\(UUID().uuidString)", isDirectory: true)
         do {
+            if Self.isLFSPointerFile(at: downloaded.tempFileURL) {
+                throw VoiceError.unsupportedModel(String(localized: "这个链接下到的只是 Git LFS 占位文件，不是模型本体。请到仓库页面点「Download」取得真实下载地址后再粘贴。"))
+            }
             try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
             let rawFileName = Self.resolveSafeFileName(
@@ -742,11 +745,15 @@ final class VoiceModelDiscovery: Sendable {
             do {
                 let (treeData, _) = try await VoiceRemoteDownloader.fetchData(for: treeURL, session: session, allowNetwork: allowNetwork)
                 let tree = try JSONDecoder().decode(GitHubTreeResponseDTO.self, from: treeData)
-                let listing = Self.repoListing(tree.tree.filter { $0.type == "blob" }.map {
-                    RepoListing.Item(path: $0.path, size: $0.size, sha256: nil)
+                let blobs = tree.tree.filter { $0.type == "blob" }
+                // 模型一般超过 GitHub 的单文件上限，仓库里存的是 Git LFS 占位符（一百多字节的文本）：
+                // 这类文件要从 LFS 地址取，按 raw 地址下到的只是占位符；大小未知，不显示那个假的字节数。
+                let lfsPaths = Set(blobs.filter { Self.looksLikeLFSPointer(path: $0.path, size: $0.size) }.map(\.path))
+                let listing = Self.repoListing(blobs.map {
+                    RepoListing.Item(path: $0.path, size: lfsPaths.contains($0.path) ? nil : $0.size, sha256: nil)
                 })
                 files = Self.remoteFiles(from: listing, repoID: repoID, platform: .github) { path in
-                    Self.githubRawURL(repoID: repoID, branch: branch, relativePath: path)
+                    Self.githubRawURL(repoID: repoID, branch: branch, relativePath: path, lfs: lfsPaths.contains(path))
                 }
             } catch let error as VoiceError {
                 // 关联网、被限流要如实告诉用户；别的失败（空仓库等）再去 Releases 里找找。
@@ -850,11 +857,29 @@ final class VoiceModelDiscovery: Sendable {
         return URL(string: "\(VoiceModelMirrorConfig.officialHFBase)/\(repoID)/resolve/main/\(encodedPath)")
     }
 
-    private static func githubRawURL(repoID: String, branch: String, relativePath: String) -> URL? {
+    static func githubRawURL(repoID: String, branch: String, relativePath: String, lfs: Bool = false) -> URL? {
         let encodedPath = relativePath.split(separator: "/").map {
             $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
         }.joined(separator: "/")
+        if lfs {
+            return URL(string: "https://media.githubusercontent.com/media/\(repoID)/\(branch)/\(encodedPath)")
+        }
         return URL(string: "https://raw.githubusercontent.com/\(repoID)/\(branch)/\(encodedPath)")
+    }
+
+    /// Git LFS 占位符只有一百多字节；真正的模型和索引不可能这么小。
+    static func looksLikeLFSPointer(path: String, size: Int64?) -> Bool {
+        let lower = path.lowercased()
+        guard lower.hasSuffix(".onnx") || lower.hasSuffix(".f32bin"), let size else { return false }
+        return size > 0 && size < 1024
+    }
+
+    /// 下载到的文件其实是 Git LFS 占位符（不是模型本体）。
+    static func isLFSPointerFile(at url: URL) -> Bool {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber,
+              size.int64Value < 1024,
+              let data = try? Data(contentsOf: url) else { return false }
+        return String(decoding: data, as: UTF8.self).hasPrefix("version https://git-lfs")
     }
 
     private static func resolveSafeFileName(suggested: String?, url: URL?, fallbackExt: String) -> String {

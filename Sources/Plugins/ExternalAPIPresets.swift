@@ -222,7 +222,7 @@ enum ExternalAPIPresetCatalog {
           "title": "title|identifier",
           "artist": "creator.0|creator",
           "artworkTemplate": "https://archive.org/services/img/{{id}}",
-          "streamUrlTemplate": "https://archive.org/download/{{id}}/{{id}}.mp3"
+          "streamUrlTemplate": "https://archive.org/download/{{id}}/format=VBR+MP3"
         }
       },
       "search": {
@@ -238,7 +238,7 @@ enum ExternalAPIPresetCatalog {
       },
       "resolve": {
         "mode": "direct",
-        "url": "https://archive.org/download/{{id}}/{{id}}.mp3",
+        "url": "https://archive.org/download/{{id}}/format=VBR+MP3",
         "codec": "MP3",
         "fileExtension": "mp3"
       }

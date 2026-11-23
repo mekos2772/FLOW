@@ -13,7 +13,7 @@ struct ExternalLyricsAggregator: Sendable {
     var wordLevelLyrics: AMLLLyricsProvider? = .shared
     var lrclib: LRCLIBSource = LRCLIBSource()
 
-    static let maxLyricQueries = 6
+    static let maxLyricQueries = 8
 
     func resolve(for track: Track,
                  hint: MetadataHint? = nil,
@@ -58,13 +58,22 @@ struct ExternalLyricsAggregator: Sendable {
         if hint?.alternativeTitle == nil || hint?.alternativeTitle == parsed.title, let offlineWordLevel {
             return offlineWordLevel
         }
-        if let wordLevel = await wordLevelLyrics?.lyrics(
-            title: searchTitle,
-            artist: artist,
-            artistIsReliable: artistIsReliable,
-            duration: track.duration,
-            allowNetwork: true
-        ), !wordLevel.isEmpty {
+        // 标题里可能有不止一个像歌名的片段（「冬之花/冬の花」「音质标签｜歌名」），逐字库按顺序都试一遍。
+        var wordLevelTitles = [searchTitle]
+        if hint?.alternativeTitle == nil {
+            for candidate in LyricQueryNormalizer.titleCandidates(rawTitle)
+            where !candidate.isGuess && !wordLevelTitles.contains(candidate.title) {
+                wordLevelTitles.append(candidate.title)
+            }
+        }
+        for (position, wordLevelTitle) in wordLevelTitles.prefix(4).enumerated() {
+            guard let wordLevel = await wordLevelLyrics?.lyrics(
+                title: wordLevelTitle,
+                artist: artist,
+                artistIsReliable: position == 0 && artistIsReliable,
+                duration: track.duration,
+                allowNetwork: true
+            ), !wordLevel.isEmpty else { continue }
             return TextNormalizer.simplified(document: LyricsDocument(
                 trackIdentity: track.identity,
                 lines: wordLevel,
@@ -115,43 +124,68 @@ struct ExternalLyricsAggregator: Sendable {
         )
     }
 
+    /// 逐个候选歌名去查，由查到的结果反过来验证候选。
+    ///
+    /// 每个候选的结果都按**它自己的歌名**比对（之前一律按第一个候选比，后面的候选查到了也会被判成无关）。
+    /// 结果里的歌手若出现在视频标题或投稿人里，就是强证据，立刻采用；
+    /// 没有歌手旁证的，先记下第一个正经候选的结果，等其余候选都试过再用它兜底。
     func searchRelaxed(title: String,
                        artist: String?,
                        duration: TimeInterval?,
                        limit: Int = 5,
                        requiresCompatibleDuration: Bool = true) async throws -> [LRCLIBSource.Candidate] {
-        let wantedTitle = LyricQueryNormalizer.parseTitle(title).title
-        var queries: [(String, String?)] = []
+        struct Query { var title: String; var artist: String?; var isGuess: Bool }
+        var queries: [Query] = []
         var seen = Set<String>()
-        func add(_ t: String, _ a: String?) {
+        func add(_ t: String, _ a: String?, isGuess: Bool) {
             let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count >= 2 else { return }
             guard seen.insert(trimmed + "|" + (a ?? "")).inserted else { return }
-            queries.append((trimmed, a))
+            queries.append(Query(title: trimmed, artist: a, isGuess: isGuess))
         }
 
-        for candidate in LyricQueryNormalizer.titleCandidates(title) {
-            add(candidate.title, nil)
-            if let artist = candidate.artist { add(candidate.title, artist) }
+        let candidates = LyricQueryNormalizer.titleCandidates(title)
+        for candidate in candidates {
+            add(candidate.title, candidate.artist, isGuess: candidate.isGuess)
         }
-        if let artist, !artist.isEmpty {
-            add(LyricQueryNormalizer.parseTitle(title).title, artist)
+        if let artist, !artist.isEmpty, let primary = candidates.first(where: { !$0.isGuess }) {
+            add(primary.title, artist, isGuess: false)
         }
 
-        for (queryTitle, queryArtist) in queries.prefix(Self.maxLyricQueries) {
+        let context = LyricQueryNormalizer.MatchContext(title, artist)
+        var fallback: [LRCLIBSource.Candidate] = []
+        var firstFailure: (any Error)?
+        var anyQuerySucceeded = false
+        for query in queries.prefix(Self.maxLyricQueries) {
             try Task.checkCancellation()
-            let candidates = try await lrclib.search(title: queryTitle, artist: queryArtist)
+            // 候选多了，单次请求失败不该让整轮检索作废；全部失败才把错误报上去。
+            let found: [LRCLIBSource.Candidate]
+            do {
+                found = try await lrclib.search(title: query.title, artist: query.artist)
+                anyQuerySucceeded = true
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                if firstFailure == nil { firstFailure = error }
+                continue
+            }
             let ranked = LRCLIBSource.rank(
-                candidates,
-                title: wantedTitle,
-                artist: queryArtist ?? artist,
+                found,
+                title: query.title,
+                artist: query.artist ?? artist,
                 duration: duration,
                 limit: limit,
-                requiresCompatibleDuration: requiresCompatibleDuration
+                requiresCompatibleDuration: requiresCompatibleDuration,
+                context: context,
+                requiresArtistEvidence: query.isGuess
             )
-            if !ranked.isEmpty { return ranked }
+            guard let top = ranked.first else { continue }
+            if LRCLIBSource.hasArtistEvidence(top, context: context) { return ranked }
+            if fallback.isEmpty { fallback = ranked }
         }
-        return []
+        if fallback.isEmpty, !anyQuerySucceeded, let firstFailure { throw firstFailure }
+        return fallback
     }
 
     static func cachedWordLevelLyrics(track: Track,

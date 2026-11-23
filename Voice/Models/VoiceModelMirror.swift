@@ -379,6 +379,12 @@ enum VoiceRemoteDownloader {
 
                 let task = session.downloadTask(with: request) { tempURL, response, error in
                     taskBox.invalidateObserver()
+                    if !allowNetwork() {
+                        // 下载途中关了联网（进度回调里已叫停）：按"联网已关闭"报，不当成普通失败去换源重试。
+                        if let tempURL { try? FileManager.default.removeItem(at: tempURL) }
+                        continuation.resume(throwing: VoiceError.networkDisabled("已在设置中关闭联网，已中止下载。"))
+                        return
+                    }
                     if let violation = redirects.violation {
                         if case .networkDisabled = violation {
                             continuation.resume(throwing: VoiceError.networkDisabled("已在设置中关闭联网，已中止下载。"))
@@ -418,15 +424,19 @@ enum VoiceRemoteDownloader {
                 }
                 task.delegate = redirects
 
-                if let onProgress {
-                    let obs = task.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
-                        let clamped = min(max(progress.fractionCompleted, 0), 0.99)
-                        if taskBox.shouldEmitProgress(clamped) {
-                            onProgress(clamped)
-                        }
+                // 进度回调顺带盯着联网开关：生成任务里自动下载底座模型不在「下载」列表里，
+                // 关联网时没人替它取消，只能在这里自己停。
+                let obs = task.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
+                    guard allowNetwork() else {
+                        taskBox.cancel()
+                        return
                     }
-                    taskBox.setObserver(obs)
+                    let clamped = min(max(progress.fractionCompleted, 0), 0.99)
+                    if let onProgress, taskBox.shouldEmitProgress(clamped) {
+                        onProgress(clamped)
+                    }
                 }
+                taskBox.setObserver(obs)
 
                 taskBox.set(task)
                 if Task.isCancelled {

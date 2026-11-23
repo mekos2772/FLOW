@@ -18207,6 +18207,40 @@
           }
         }
       }
+    },
+    "GPU + CPU 混合 (ONNX)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPU + CPU hybrid (ONNX)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPU + CPU 混合 (ONNX)"
+          }
+        }
+      }
+    },
+    "这个链接下到的只是 Git LFS 占位文件，不是模型本体。请到仓库页面点「Download」取得真实下载地址后再粘贴。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This link only returned a Git LFS pointer file, not the model itself. Open the repository page, click “Download” to get the real download address, then paste it here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个链接下到的只是 Git LFS 占位文件，不是模型本体。请到仓库页面点「Download」取得真实下载地址后再粘贴。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

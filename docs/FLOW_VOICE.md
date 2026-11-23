@@ -40,6 +40,23 @@
 - **只在显式操作时生成**：切歌、搜索播放、原曲缓冲落盘都只刷新"已有成品是否命中"，从不自动入队；生成入口只有播放器「音色」面板/版本切换里的「生成并播放 AI 版」「重新生成」。AI 总开关的含义是"有成品时优先播 AI 版"。
 - **离线页管理成品**：manifest 额外保存 `track`、`packName`、`separationKey`、`conversionKey`（早期 manifest 没有，读出为 nil，离线页按身份从离线库/曲目库反查歌名）。离线页「AI 翻唱」分页按"同曲 + 同音色"列最新一份，可播放、在访达中显示、逐条删除或清空；删除会连带清掉只被它引用的中间文件，早期 manifest 无法对应时在全部成品删完后统一清扫（有转换任务在跑时不扫）。从离线页点播会钉住该成品，不受当前所选音色/参数与底座模型影响；切换音色或调参后钉住失效。
 
+### 设备分配（2026-11-23 实测，M4 / 16GB / ONNX Runtime 1.32）
+
+四个模型各走实测最快的设备，不是全上 CoreML：
+
+| 模型 | 设备 | 依据 |
+| --- | --- | --- |
+| MDX 人声分离 | CoreML（GPU） | 173/173 节点进 CoreML；每块 0.34s，CPU 为 1.4s，仅 Neural Engine 为 1.35s |
+| RMVPE 音高 | CPU | CoreML 能加载，但整首歌长度一次推理要 9–50s，CPU 为 4.5s |
+| HuBERT 特征 | CPU | 输入长度动态，CoreML 建图失败；CPU 每 20 秒分块约 0.7s，本来就不是瓶颈 |
+| RVC 合成器 | CPU，多路并行 | 动态形状下 CoreML 建图失败；固定形状能上 GPU，但每块 36–200s，CPU 为 7–10s |
+
+合成器占转换阶段的绝大部分时间，所以提速靠 CPU 并行：`RVCVoiceConverter.synthesisLayout` 按核心数和内存决定开几路合成器会话（每路峰值约 2.2GB，合计不超过物理内存的三分之一），各路从同一个游标领分块，最后按原顺序拼接。HuBERT 会话各路共用，索引检索排队执行。任务结束只留一路会话。
+
+整首歌实测（255 秒人声，16GB 机器自动选 2 路 × 4 线程）：转换阶段 279s → 237s，快约 18%。合成器自带随机噪声源，同一配置跑两次的输出本来就只有约 33dB 的一致度，并行与串行的差异也在这个范围内。
+
+进程退出时 ORT 的全局对象会被析构，这时还有线程在加载模型或推理就会段错误（全量测试结束的瞬间踩到过一次，后台正在自动导入音色包）。`ORTActivity` 给进出 ORT 的调用记数，退出钩子先拦新调用、再等在途调用收尾，最多 3 秒。
+
 ## 2. 代码地图
 
 ```text
@@ -57,7 +74,7 @@ Voice/
   Models/F32VectorIndex.swift           .f32bin 紧凑浮点索引加载与 vDSP_mmul k=8 加权检索
   Models/HuBERTFeatureExtractor.swift   HuBERT ONNX 特征提取（兼容 v2 768 维与 v1 256 维）
   Models/ONNXSineGenSanitizer.swift     运行时修复 RVC ONNX SineGen Float32 静音相位漂移阈值
-  Models/RVCVoiceConverter.swift        分段零过零切分、清辅音保护与 RVC ONNX 合成主链
+  Models/RVCVoiceConverter.swift        分段零过零切分、清辅音保护与 RVC ONNX 合成主链（分块在 CPU 上多路并行，见下方「设备分配」）
   Models/VoiceModelAssetsManager.swift  Models/ 基础模型状态管理、ContentVec 兼容性校验与联网受控下载
   Models/VoiceModelDiscovery.swift      HuggingFace（经默认镜像）/ GitHub RVC 模型检索、精选音色与直链分类
   Models/VoiceModelMirror.swift         镜像模式与候选地址（文件下载/检索 API 分开）、受控大文件下载与流式 SHA256
@@ -129,6 +146,13 @@ python3 -m venv ~/flow-rvc-venv
 
 这三个角色的公开源都只提供 `.pth`（+ `.index`），App 不能直接运行。用桌面转换工具把生成的 `.voicepack` 放到 `~/Downloads/FLOW-VoicePacks/` 后，卡片会显示「导入」，点一下即可写入音色库并以中文名出现在播放页；已导入的卡片显示「已导入」标签和「使用」按钮。没有转换包时卡片显示「尚未转换」并提供源站链接，不会假装可下载。
 
+打开面板时会把这个目录里转换好的音色包自动导入（2026-11-24 起的规则）：
+
+- **每份转换结果只自动导入一次**（记在偏好设置 `voice.autoImportedPreparedPacks`，按文件夹名 + `pack.json` 里的模型 SHA256）。用户删掉的音色不会每次打开面板又装回来；重新转换出新模型算新的一份。
+- **不改当前选中的音色**；一个音色都没有时才把导入的那个设为当前音色。手动点「导入」仍会选中。
+- **按模型 SHA256 认「已导入」**，用户改过名也认得；HF / GitHub 页签里的文件同理，以前导入过的直接显示「已导入」，不会再下一遍变成两个一样的音色。
+- 「复制转换命令」用各仓库的真实文件名（`CuratedVoice.weightFile` / `indexFile`，2026-11-24 核对过仓库文件列表；曼波小马的仓库不按卡片 id 命名），并用 `curl -f`，文件名失效时直接报错。命令里的 `Tools/rvc-converter/...` 是相对路径，要在仓库根目录执行。
+
 检索框直接输入中文名或罗马字（`高松灯`、`tomori`、`小马曼波`、`tannhauser`、`千早爱音`、`anon`）会精确映射到对应仓库。其他音色仍在 HuggingFace / GitHub / URL 直链页签按原样检索。
 
 > 沙盒构建靠 `com.apple.security.files.downloads.read-only` 读取该目录，路径按真实用户主目录计算（沙盒里 `homeDirectoryForCurrentUser` 指向容器）。签名沙盒包里的实际读取仍待验证；读不到时仍可用「导入音色」手动选择文件夹。
@@ -138,6 +162,7 @@ python3 -m venv ~/flow-rvc-venv
 - **下载通道**：默认 `hf-mirror.com`，在「设置 → 音色 → 模型下载与镜像源」可切换「默认镜像源」「官方直连」「自定义镜像（HF 域名可带子路径，另可设 GitHub 加速前缀）」；模型文件失败时自动回退官方地址。
 - **检索 API 与镜像的分工**：`hf-mirror.com` 只代理文件下载，`/api/*` 会 308 跳回 `huggingface.co`。所以默认镜像与官方模式下检索**直接请求官方 API**（`VoiceModelMirrorConfig.apiCandidateURLs`，不再白等一轮镜像超时）；自定义镜像可能代理了 API，先试镜像再回退。连不上时提示「镜像只能加速下载，可以在 URL 直链里粘贴下载链接」。2026-11-23 实网用例：关键词检索约 1.7 s、仓库详情约 0.8 s 通过（`testLiveHFKeywordSearchReturnsRepos` / `testLiveHFMirrorDiscoveryAndInspect`）。
 - **社区模型发现与一键导入**：`VoiceModelDiscovery` 在 HuggingFace 与 GitHub 公开仓库中检索可直接运行的音色：独立 `.onnx`（排除 `rmvpe`/`hubert`/`uvr` 等底座文件名，自动配对同名 `.f32bin`），以及仓库里的 `xx.voicepack/` 文件夹（`pack.json` / `model.onnx` / `index.f32bin` / 封面整组下载后按文件夹导入）。HF 文件按 `lfs.sha256` 校验；GitHub 无哈希可校验。GitHub 被限流（403/429）时如实提示，不再显示成「仓库暂无文件」。
+- **下载的几条行为**（2026-11-24）：「一键补齐缺失模型」某个模型失败不影响其余的，全部试完再报第一个错；关掉「允许联网」会连同生成任务里正在自动下载的底座模型一起停（下载器在进度回调里盯着开关）；GitHub 仓库里用 Git LFS 存的模型改从 `media.githubusercontent.com` 取（这条地址规则还没有拿真实仓库验证过），下到占位文件时明确提示。
 - **下载即导入**：`VoiceModelFetchSheet` 支持关键词搜索、`owner/repo` 直达、或粘贴 HuggingFace/GitHub 文件链接（`/blob/` 网页链接、HF 数据集链接自动纠偏）；下载完成后直接写入 `VoicePackStore`。下载可随时取消（行内 ✕），卸载组件、关闭「允许联网」也会取消进行中的下载；同一音色重复点击不会重复下载。面板默认停在「精选」，切到 HF / GitHub 页签时自动检索一次；切换页签会取消上一页签的检索，结果不会串到别的页签。
 - **直链分类**（`VoiceModelDiscovery.classifyDirectLink`）：`.onnx` 直接下载（只给 HF `/resolve/` 的 `.onnx` 时自动尝试同名 `.f32bin`）；仓库页面或 `.voicepack` 文件夹链接切换到仓库检索；`.pth` / `.index` 提示需先转换，`.zip` 等压缩包提示先解压再拖入，避免下载数百 MB 后只得到一句看不懂的格式错误。
 - **结果可读性**：检索只返回**确实含可运行音色**的仓库；每个仓库摘要直接列出前三个音色名（如「12 个音色：beyonce、luna v2、… · 1200 次下载」）。

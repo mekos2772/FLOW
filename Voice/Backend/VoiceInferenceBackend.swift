@@ -18,10 +18,11 @@ protocol VoiceInferenceBackend: Sendable {
     func executionProvider(cacheDirectory: URL?) -> ORTExecutionProvider
 }
 
-/// Apple CoreML Execution Provider + CPU 混合后端（优先使用 Neural Engine / GPU）。
+/// CoreML + CPU 混合后端：人声分离走 CoreML（实测由 GPU 执行），音高、特征与合成走 CPU 多路并行。
+/// 各模型的设备是按实测耗时分的，见 `docs/FLOW_VOICE.md`「设备分配」。
 struct CoreMLONNXBackend: VoiceInferenceBackend, Sendable {
     let id = "onnx-coreml"
-    let displayName = "CoreML + Neural Engine (ONNX)"
+    let displayName = "GPU + CPU 混合 (ONNX)"
     let intraOpThreads: Int32 = 4
 
     var isAvailable: Bool {
@@ -29,7 +30,7 @@ struct CoreMLONNXBackend: VoiceInferenceBackend, Sendable {
     }
 
     var availabilityNotes: String {
-        isAvailable ? "CoreML EP 可用（MLProgram + ANE/GPU 自动调度）" : "CoreML EP 不可用，将回退 CPU"
+        isAvailable ? "CoreML EP 可用（人声分离走 GPU，其余模型走 CPU 并行）" : "CoreML EP 不可用，将回退 CPU"
     }
 
     func executionProvider(cacheDirectory: URL?) -> ORTExecutionProvider {

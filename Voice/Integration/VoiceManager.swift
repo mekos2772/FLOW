@@ -311,7 +311,8 @@ final class VoiceManager {
         weightURL: URL,
         displayName: String? = nil,
         indexURL: URL? = nil,
-        coverURL: URL? = nil
+        coverURL: URL? = nil,
+        select: Bool = true
     ) async throws -> VoicePackManifest {
         let manifest = try await packStore.importPack(
             weightURL: weightURL,
@@ -322,9 +323,75 @@ final class VoiceManager {
             registry: engineRegistry
         )
         reloadPacks()
-        selectedPackID = manifest.packID
+        // 用户亲手导入/下载的音色直接选中；后台自动导入的不抢当前选中的音色
+        // （一个都没选时 `reloadPacks` 会选上第一个）。
+        if select { selectedPackID = manifest.packID }
         showEntryInPlayer = true
         return manifest
+    }
+
+    // MARK: - 下载目录里转换好的音色包
+
+    static let autoImportedPreparedPacksKey = "voice.autoImportedPreparedPacks"
+
+    /// 这张精选卡片对应的音色导入过没有：先按 `pack.json` 里的模型 SHA256 认（改过名也认得），
+    /// 旧版转换包没有 SHA256 时退回按名字认。
+    func importedPack(for item: CuratedVoice, in directory: URL = CuratedVoiceCatalog.packsDirectory) -> VoicePackManifest? {
+        if let sha = CuratedVoiceCatalog.localModelSHA256(for: item, in: directory),
+           let hit = packs.first(where: { pack in
+               pack.versions.contains { $0.weightFingerprint.lowercased() == sha }
+           }) {
+            return hit
+        }
+        return packs.first { $0.displayName == item.displayName }
+    }
+
+    /// 手动点「导入」：导入并选中，同时记下这份转换结果，之后删掉不会被自动导入装回来。
+    @discardableResult
+    func importPreparedPack(
+        _ item: CuratedVoice,
+        in directory: URL = CuratedVoiceCatalog.packsDirectory,
+        defaults: UserDefaults = RuntimeSandbox.defaults,
+        select: Bool = true
+    ) async throws -> VoicePackManifest {
+        let key = CuratedVoiceCatalog.autoImportKey(for: item, in: directory)
+        let manifest = try await importPack(
+            weightURL: CuratedVoiceCatalog.localPackURL(for: item, in: directory),
+            displayName: item.displayName,
+            select: select
+        )
+        var remembered = defaults.stringArray(forKey: Self.autoImportedPreparedPacksKey) ?? []
+        if !remembered.contains(key) {
+            remembered.append(key)
+            defaults.set(remembered, forKey: Self.autoImportedPreparedPacksKey)
+        }
+        return manifest
+    }
+
+    /// 打开获取面板时：把下载目录里转换好、还没导入过的音色包导进来。
+    ///
+    /// 每份转换结果只自动导入一次（用户删掉的音色不会每次打开面板又冒出来），
+    /// 也不改当前选中的音色。只看精选清单里列出的那几个文件夹，不碰下载目录里的其它文件。
+    func autoImportPreparedPacks(
+        in directory: URL = CuratedVoiceCatalog.packsDirectory,
+        defaults: UserDefaults = RuntimeSandbox.defaults
+    ) async -> (imported: [VoicePackManifest], firstError: String?) {
+        let remembered = Set(defaults.stringArray(forKey: Self.autoImportedPreparedPacksKey) ?? [])
+        let pending = CuratedVoiceCatalog.all.filter { item in
+            CuratedVoiceCatalog.hasLocalPack(for: item, in: directory)
+                && importedPack(for: item, in: directory) == nil
+                && !remembered.contains(CuratedVoiceCatalog.autoImportKey(for: item, in: directory))
+        }
+        var imported: [VoicePackManifest] = []
+        var firstError: String?
+        for item in pending {
+            do {
+                imported.append(try await importPreparedPack(item, in: directory, defaults: defaults, select: false))
+            } catch {
+                if firstError == nil { firstError = error.localizedDescription }
+            }
+        }
+        return (imported, firstError)
     }
 
     @discardableResult
@@ -458,6 +525,7 @@ final class VoiceManager {
 
     private func trackDownload<T: Sendable>(
         _ id: String,
+        discard: (@MainActor (T) -> Void)? = nil,
         _ work: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T {
         let task = Task { @MainActor in try await work() }
@@ -474,7 +542,11 @@ final class VoiceManager {
             task.cancel()
         }
         // 取消请求恰好落在下载完成之后：结果作废，别让卸载后的东西又装回来。
-        if cancelled.value { throw CancellationError() }
+        if cancelled.value {
+            // 作废的结果可能带着已经下好的临时文件（上百 MB），别留在临时目录里。
+            discard?(value)
+            throw CancellationError()
+        }
         return value
     }
 
@@ -520,10 +592,24 @@ final class VoiceManager {
         }
         isDownloadingAllBaseAssets = true
         defer { isDownloadingAllBaseAssets = false }
+        // 一个模型下不动（比如只有一个下载源的那个）不该连累其余的：都试一遍，最后报第一个错。
+        var firstError: (any Error)?
         for kind in VoiceModelAssetsManager.AssetKind.allCases where !assets.assetIsReady(kind) {
             try Task.checkCancellation()
-            try await downloadBaseAsset(kind)
+            do {
+                try await downloadBaseAsset(kind)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                throw CancellationError()
+            } catch let voiceError as VoiceError {
+                if case .networkDisabled = voiceError { throw voiceError }
+                if firstError == nil { firstError = voiceError }
+            } catch {
+                if firstError == nil { firstError = error }
+            }
         }
+        if let firstError { throw firstError }
     }
 
     // MARK: - 镜像源与远端音色自动检索、下载直连导入
@@ -664,7 +750,9 @@ final class VoiceManager {
 
         let discovery = self.discovery
         let mirror = mirrorConfig
-        let payload = try await trackDownload(trackingID) { [weak self] in
+        let payload = try await trackDownload(trackingID, discard: { payload in
+            try? FileManager.default.removeItem(at: payload.stagingDirectory)
+        }) { [weak self] in
             try await discovery.downloadRemoteModel(
                 from: url,
                 suggestedFileName: suggestedFileName,

@@ -670,7 +670,7 @@ private final class MockVoiceProtocolState: @unchecked Sendable {
     }
 }
 
-private final class MockVoiceURLProtocol: URLProtocol {
+final class MockVoiceURLProtocol: URLProtocol {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 
     private static let state = MockVoiceProtocolState()

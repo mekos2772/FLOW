@@ -31,6 +31,20 @@ final class ORTSessionAndBackendTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    /// 合成并行布局：路数受分块数、核心数、内存三者约束，单路时改用更多线程。
+    func testSynthesisLayoutFollowsCoresMemoryAndChunkCount() {
+        let gb: UInt64 = 1 << 30
+        func layout(_ chunks: Int, _ cores: Int, _ memoryGB: UInt64) -> RVCVoiceConverter.SynthesisLayout {
+            RVCVoiceConverter.synthesisLayout(chunkCount: chunks, cores: cores, physicalMemory: memoryGB * gb)
+        }
+        XCTAssertEqual(layout(13, 10, 24), .init(workers: 3, threadsPerWorker: 3))
+        XCTAssertEqual(layout(13, 10, 16), .init(workers: 2, threadsPerWorker: 4))
+        XCTAssertEqual(layout(13, 8, 16), .init(workers: 2, threadsPerWorker: 4))
+        XCTAssertEqual(layout(13, 10, 8), .init(workers: 1, threadsPerWorker: 8))
+        XCTAssertEqual(layout(1, 10, 24), .init(workers: 1, threadsPerWorker: 8))
+        XCTAssertEqual(layout(13, 4, 16), .init(workers: 1, threadsPerWorker: 4))
+    }
+
     func testORTEnvironmentVersionAndBackends() {
         let ver = ORTEnvironment.runtimeVersion
         XCTAssertFalse(ver.isEmpty)

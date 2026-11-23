@@ -103,7 +103,9 @@ struct LRCLIBSource: Sendable {
                      artist: String?,
                      duration: TimeInterval?,
                      limit: Int = 5,
-                     requiresCompatibleDuration: Bool = true) -> [Candidate] {
+                     requiresCompatibleDuration: Bool = true,
+                     context: LyricQueryNormalizer.MatchContext? = nil,
+                     requiresArtistEvidence: Bool = false) -> [Candidate] {
         let wantedTitle = LyricQueryNormalizer.normalize(title)
         let wantedArtist = artist.map { LyricQueryNormalizer.normalize($0) } ?? ""
 
@@ -131,7 +133,17 @@ struct LRCLIBSource: Sendable {
             else if hasTitleSignal(candidate) {
                 value += 20
             }
+            // 歌手出现在视频标题或投稿人里：和歌手栏对上同样有分量。
+            if hasArtistEvidence(candidate, context: context) { value += 30 }
             return value + Self.artistAndDurationBonus(for: candidate, wantedArtist: wantedArtist, duration: duration)
+        }
+
+        /// 猜出来的歌名（可能其实是歌手名、栏目名）要更硬的证据：歌名完全相等，且歌手有旁证。
+        /// 例：从「得力 珊瑚海 A4 打印纸」里拆出的「珊瑚海」查得到歌，但标题里没有周杰伦，不能用。
+        func passesEvidenceGate(_ candidate: Candidate) -> Bool {
+            guard requiresArtistEvidence else { return true }
+            return LyricQueryNormalizer.normalize(candidate.trackName) == wantedTitle
+                && hasArtistEvidence(candidate, context: context)
         }
 
         /// 时长是否说得过去。两边都知道时长、却差了半分钟以上，
@@ -150,7 +162,7 @@ struct LRCLIBSource: Sendable {
         // 也会被当成这首曲子的歌词——"配上了但全错"比"没有歌词"更糟。
         // 现在要求标题至少构成包含关系（相等 +40 / 包含 +20），即基础分 100 之上还要有标题信号。
         let scored = candidates
-            .filter { $0.hasSynced && hasTitleSignal($0) && isDurationCompatible($0) }
+            .filter { $0.hasSynced && hasTitleSignal($0) && isDurationCompatible($0) && passesEvidenceGate($0) }
             .map { (candidate: $0, score: score($0)) }
             .sorted { lhs, rhs in
                 if lhs.score != rhs.score { return lhs.score > rhs.score }
@@ -159,6 +171,13 @@ struct LRCLIBSource: Sendable {
             .prefix(limit)
             .map(\.candidate)
         return Array(scored)
+    }
+
+    /// 这条歌词的歌手是否出现在视频标题或投稿人里。
+    static func hasArtistEvidence(_ candidate: Candidate,
+                                  context: LyricQueryNormalizer.MatchContext?) -> Bool {
+        guard let context, !candidate.artistName.isEmpty else { return false }
+        return context.mentions(artist: candidate.artistName)
     }
 
     /// 手动搜词排序：保留所有带时间轴的候选（支持混写关键词与不同翻唱标题），按相关性及增强逐字支持排序。

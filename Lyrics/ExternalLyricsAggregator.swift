@@ -101,8 +101,7 @@ struct ExternalLyricsAggregator: Sendable {
         let parsed = LyricQueryNormalizer.parseTitle(track.title)
         let primaryKey = TrackIdentity.storageKey(track.identity)
         if let cached = cache.load(identity: primaryKey, title: parsed.title)
-            ?? cache.loadAny(identity: primaryKey)
-            ?? legacyCacheKey.flatMap({ cache.load(identity: $0, title: parsed.title) ?? cache.loadAny(identity: $0) }),
+            ?? legacyCacheKey.flatMap({ cache.load(identity: $0, title: parsed.title) }),
            let doc = Self.document(fromLRC: cached, track: track) {
             return doc
         }
@@ -121,6 +120,7 @@ struct ExternalLyricsAggregator: Sendable {
                        duration: TimeInterval?,
                        limit: Int = 5,
                        requiresCompatibleDuration: Bool = true) async throws -> [LRCLIBSource.Candidate] {
+        let wantedTitle = LyricQueryNormalizer.parseTitle(title).title
         var queries: [(String, String?)] = []
         var seen = Set<String>()
         func add(_ t: String, _ a: String?) {
@@ -143,7 +143,7 @@ struct ExternalLyricsAggregator: Sendable {
             let candidates = try await lrclib.search(title: queryTitle, artist: queryArtist)
             let ranked = LRCLIBSource.rank(
                 candidates,
-                title: queryTitle,
+                title: wantedTitle,
                 artist: queryArtist ?? artist,
                 duration: duration,
                 limit: limit,

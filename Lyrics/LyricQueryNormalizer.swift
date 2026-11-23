@@ -32,13 +32,9 @@ enum LyricQueryNormalizer {
 
     /// 从可能带有歌手或装饰后缀的原始标题中解析「歌名 + 可选歌手」。
     static func parseTitle(_ raw: String) -> ParsedTitle {
-        if let inner = trailingBookTitle(raw).first(where: { isUsable($0) }) {
-            let split = splitArtistAndTitle(inner)
-            let title = trimAll(split.0)
-            if !title.isEmpty {
-                return ParsedTitle(title: sanitizeDisplay(title),
-                                   artist: split.1.map(trimAll))
-            }
+        // 书名号已经明确标出歌名；其后的歌手、音质标签和宣传文案不能反过来替代它。
+        if let title = bookTitleContents(raw).first {
+            return ParsedTitle(title: sanitizeDisplay(title), artist: nil)
         }
         let candidates = titleCandidates(raw)
         guard let first = candidates.first else {
@@ -50,6 +46,12 @@ enum LyricQueryNormalizer {
 
     /// 按命中率递进生成检索候选：纯歌名 → 带歌手 → 首个词。
     static func titleCandidates(_ raw: String) -> [ParsedTitle] {
+        let explicitTitles = bookTitleContents(raw)
+        if !explicitTitles.isEmpty {
+            var seen = Set<String>()
+            return explicitTitles.filter { seen.insert($0).inserted }
+                .map { ParsedTitle(title: sanitizeDisplay($0), artist: nil) }
+        }
         var variants: [(title: String, artist: String?)] = []
         let bases = normalizedBases(raw)
         for base in bases {
@@ -255,14 +257,6 @@ enum LyricQueryNormalizer {
             cursor = end.upperBound
         }
         return results
-    }
-
-    private static func trailingBookTitle(_ raw: String) -> [String] {
-        let text = normalizePunctuation(raw)
-        guard let close = text.range(of: "》", options: .backwards) else { return [] }
-        let tail = trimAll(String(text[close.upperBound...]))
-        guard tail.allSatisfy({ " \t—-·、,，.。!！?？~～".contains($0) }) else { return [] }
-        return bookTitleContents(raw)
     }
 
     private static func bracketedTitles(_ raw: String) -> [String] {

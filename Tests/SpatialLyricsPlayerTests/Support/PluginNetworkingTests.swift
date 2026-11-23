@@ -10,6 +10,7 @@ final class PluginNetworkingTests: XCTestCase {
             let path: String
             let method: String
             let host: String
+            let headers: [String: String]
         }
         struct Reply: Sendable {
             var status = 200
@@ -87,9 +88,13 @@ final class PluginNetworkingTests: XCTestCase {
                 let lines = text.components(separatedBy: "\r\n")
                 let first = lines[0].split(separator: " ")
                 guard first.count >= 2 else { connection.cancel(); return }
-                let host = lines.first { $0.lowercased().hasPrefix("host:") }?
-                    .dropFirst(5).trimmingCharacters(in: .whitespaces) ?? ""
-                let request = Request(path: String(first[1]), method: String(first[0]), host: host)
+                var headers: [String: String] = [:]
+                for line in lines.dropFirst() {
+                    guard let colon = line.firstIndex(of: ":") else { continue }
+                    let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+                    headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                }
+                let request = Request(path: String(first[1]), method: String(first[0]), host: headers["host"] ?? "", headers: headers)
                 let handler = self.lock.withLock {
                     self.requests.append(request)
                     return self.handler
@@ -189,6 +194,108 @@ final class PluginNetworkingTests: XCTestCase {
         let result = try await runtime.call("search", args: [server.url("/start").absoluteString]) as? [[String: Any]]
         XCTAssertEqual(result?.first?["title"] as? String, "Redirected")
         XCTAssertEqual(server.receivedRequests.map(\.path), ["/start", "/result"])
+    }
+
+    func testJSHTTPBridgeAxiosAndFetchExposeValidatedFinalResponseURL() async throws {
+        let server = try await HTTPServer.start()
+        defer { server.stop() }
+        server.configure { request in
+            request.path == "/short"
+                ? .init(status: 302, location: "/collection?id=123")
+                : .init(body: "{}")
+        }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            const axios = require("axios");
+            module.exports = {
+                id: "response-url-test",
+                allowedDomains: ["localhost"],
+                async search(url) {
+                    const bridged = await flow.request({ url });
+                    const response = await axios.get(url);
+                    const fetched = await fetch(url);
+                    return {
+                        bridgeURL: bridged.url,
+                        axiosURL: response.url,
+                        responseURL: response.request.responseURL,
+                        fetchURL: fetched.url
+                    };
+                }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        let result = try await runtime.call("search", args: [server.url("/short").absoluteString]) as? [String: Any]
+        let finalURL = server.url("/collection?id=123").absoluteString
+        for key in ["bridgeURL", "axiosURL", "responseURL", "fetchURL"] {
+            XCTAssertEqual(result?[key] as? String, finalURL, key)
+        }
+        XCTAssertEqual(server.receivedRequests.map(\.path), [
+            "/short", "/collection?id=123", "/short", "/collection?id=123", "/short", "/collection?id=123"
+        ])
+    }
+
+    func testFetchRedirectDropsCrossOriginSecretsAndReportsFinalURL() async throws {
+        let server = try await HTTPServer.start()
+        defer { server.stop() }
+        let finalURL = server.url("/collection", host: "127.0.0.1").absoluteString
+        server.configure { request in
+            request.path == "/short" ? .init(status: 302, location: finalURL) : .init(body: "{}")
+        }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            module.exports = {
+                id: "fetch-redirect-privacy",
+                allowedDomains: ["localhost", "127.0.0.1"],
+                async search(url) {
+                    const response = await fetch(url, { headers: {
+                        "Accept": "application/json",
+                        "Authorization": "Bearer mock-secret",
+                        "Cookie": "mock-session=private",
+                        "X-Flow-Secret": "private-key"
+                    } });
+                    return { url: response.url, ok: response.ok };
+                }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        let result = try await runtime.call("search", args: [server.url("/short").absoluteString]) as? [String: Any]
+        XCTAssertEqual(result?["url"] as? String, finalURL)
+        XCTAssertEqual(result?["ok"] as? Bool, true)
+        let requests = server.receivedRequests
+        XCTAssertEqual(requests.map(\.path), ["/short", "/collection"])
+        XCTAssertEqual(requests.first?.headers["x-flow-secret"], "private-key")
+        XCTAssertEqual(requests.last?.headers["accept"], "application/json")
+        for name in ["authorization", "cookie", "x-flow-secret"] {
+            XCTAssertNil(requests.last?.headers[name], name)
+        }
+    }
+
+    func testFetchRejectsRedirectBeforeContactingDisallowedHost() async throws {
+        let server = try await HTTPServer.start()
+        defer { server.stop() }
+        server.configure { _ in .init(status: 302, location: server.url("/secret", host: "127.0.0.1").absoluteString) }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            module.exports = {
+                id: "fetch-redirect-policy",
+                allowedDomains: ["localhost"],
+                async search(url) { return (await fetch(url)).json(); }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        do {
+            _ = try await runtime.call("search", args: [server.url("/short").absoluteString])
+            XCTFail("Fetch must reject a redirect outside the plugin allowlist")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("127.0.0.1"), "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(server.receivedRequests.map(\.path), ["/short"])
     }
 
     func testEmptyAndStarDomainRulesStillAllowCrossHostRedirects() async throws {

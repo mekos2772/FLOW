@@ -516,6 +516,45 @@ enum JSPluginBootstrapScripts {
         }
     };
 
+    // Text/JSON fetch compatibility shares the native bridge and all of its network policies.
+    function fetch(input, init) {
+        return Promise.resolve().then(function() {
+            var opts = init || {};
+            var headers = {};
+            if (Array.isArray(opts.headers)) {
+                opts.headers.forEach(function(pair) { headers[String(pair[0])] = String(pair[1]); });
+            } else if (opts.headers && typeof opts.headers.forEach === "function") {
+                opts.headers.forEach(function(value, name) { headers[String(name)] = String(value); });
+            } else {
+                Object.keys(opts.headers || {}).forEach(function(name) { headers[name] = String(opts.headers[name]); });
+            }
+            return flow.request({
+                url: String(input),
+                method: opts.method || "GET",
+                headers: headers,
+                body: opts.body == null ? undefined : String(opts.body),
+                responseType: "text"
+            });
+        }).then(function(res) {
+            var body = String(res.rawBody == null ? "" : res.rawBody);
+            var headers = res.headers || {};
+            return {
+                ok: !!res.ok,
+                status: res.status,
+                statusText: res.statusText || "",
+                url: res.url || "",
+                headers: {
+                    get: function(name) {
+                        var key = String(name).toLowerCase();
+                        return Object.prototype.hasOwnProperty.call(headers, key) ? String(headers[key]) : null;
+                    }
+                },
+                text: function() { return Promise.resolve(body); },
+                json: function() { return Promise.resolve().then(function() { return JSON.parse(body); }); }
+            };
+        });
+    }
+
     var env = {
         os: "macos",
         appVersion: "1.0.0",
@@ -568,6 +607,7 @@ enum JSPluginBootstrapScripts {
             p = p.then(function(finalCfg) {
                 return flow.request(finalCfg).then(function(res) {
                     res.config = finalCfg;
+                    res.request = { responseURL: res.url || finalCfg.url || "" };
                     if (!res.ok) {
                         var err = new Error("Request failed with status code " + res.status);
                         err.response = res;
@@ -1180,7 +1220,8 @@ enum JSPluginBootstrapScripts {
         var name = ex.platform || ex.name || ex.id || "";
         var domains = Array.isArray(ex.allowedDomains) ? ex.allowedDomains.map(String) : [];
         var qualities = Array.isArray(ex.supportedQualities) ? ex.supportedQualities.map(String) : [];
-        var searchTypes = Array.isArray(ex.supportedSearchType) ? ex.supportedSearchType.map(String) : [];
+        var hasDeclaredSearchTypes = Array.isArray(ex.supportedSearchType);
+        var searchTypes = hasDeclaredSearchTypes ? ex.supportedSearchType.map(String) : [];
         var userVars = Array.isArray(ex.userVariables) ? ex.userVariables.map(function(v) {
             return {
                 key: String(v.key || ""),
@@ -1207,7 +1248,7 @@ enum JSPluginBootstrapScripts {
             userVariables: userVars,
             lxSources: lxKeys,
             isLX: isLX,
-            hasSearch: typeof ex.search === "function",
+            hasSearch: typeof ex.search === "function" && (!hasDeclaredSearchTypes || searchTypes.length > 0),
             hasGetMediaSource: typeof ex.getMediaSource === "function" || isLX,
             hasGetLyric: typeof ex.getLyric === "function",
             hasGetMusicInfo: typeof ex.getMusicInfo === "function",

@@ -41,11 +41,26 @@ struct GitHubConfigCandidate: Identifiable, Hashable, Sendable {
     let id: String
     let displayName: String
     let path: String
-    let kind: Kind
+    var kind: Kind
     let rawURL: URL
     let htmlURL: URL?
     let sizeBytes: Int?
     let repoFullName: String
+    var compatibility: Compatibility = .unchecked
+
+    enum Compatibility: Hashable, Sendable {
+        case unchecked
+        case recognized
+        case unsupported
+
+        var sortRank: Int {
+            switch self {
+            case .recognized: 0
+            case .unchecked: 1
+            case .unsupported: 2
+            }
+        }
+    }
 }
 
 /// 预览 `plugins.json` 等订阅清单时解析出的单个子源条目。
@@ -96,6 +111,7 @@ enum GitHubDiscoveryError: LocalizedError, Equatable, Sendable {
 final class GitHubSourceDiscovery: @unchecked Sendable {
     static let tokenAccountKey = "github.discovery.token"
     private static let allowedDomains = ["api.github.com", "raw.githubusercontent.com", "cdn.jsdelivr.net"]
+    private static let maximumCandidateBytes = 2_000_000
 
     private let session: URLSession
     private let secrets: any SecretStoring
@@ -154,9 +170,7 @@ final class GitHubSourceDiscovery: @unchecked Sendable {
         components.host = "api.github.com"
         components.path = "/search/repositories"
         components.queryItems = [
-            URLQueryItem(name: "q", value: trimmed),
-            URLQueryItem(name: "sort", value: "stars"),
-            URLQueryItem(name: "order", value: "desc"),
+            URLQueryItem(name: "q", value: Self.repositorySearchQuery(for: trimmed)),
             URLQueryItem(name: "per_page", value: "20"),
         ]
         guard let url = components.url else { throw GitHubDiscoveryError.invalidQuery }
@@ -338,7 +352,107 @@ final class GitHubSourceDiscovery: @unchecked Sendable {
         throw lastError ?? GitHubDiscoveryError.invalidResponse
     }
 
+    /// 只读检查候选内容，不执行第三方脚本，也不保存或启用音源。
+    func inspectCandidates(_ candidates: [GitHubConfigCandidate]) async throws -> [GitHubConfigCandidate] {
+        var result: [GitHubConfigCandidate] = []
+        for (index, candidate) in candidates.enumerated() {
+            try Task.checkCancellation()
+            guard index < 8, (candidate.sizeBytes ?? 0) <= Self.maximumCandidateBytes else {
+                result.append(candidate)
+                continue
+            }
+            var inspected = candidate
+            for url in SourceDomainPolicy.rawGitHubMirrorCandidates(for: candidate.rawURL) {
+                do {
+                    let data = try await performGET(
+                        url: url,
+                        notFoundContext: candidate.path,
+                        maximumBytes: Self.maximumCandidateBytes
+                    )
+                    if let kind = Self.sourcePayloadKind(data) {
+                        inspected.kind = kind
+                        inspected.compatibility = .recognized
+                    } else {
+                        inspected.compatibility = .unsupported
+                    }
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let violation as SourceDomainPolicy.Violation {
+                    if case .networkDisabled = violation { throw violation }
+                } catch let error as PlaybackError where error == .networkDisabled {
+                    throw error
+                } catch let error as GitHubDiscoveryError {
+                    if case .rateLimited = error { throw error }
+                    if case .unauthorized = error { throw error }
+                } catch let error as URLError where error.code == .dataLengthExceedsMaximum {
+                    break
+                } catch {
+                    // 下载失败保留为待识别候选，仍允许用户通过导入重试。
+                }
+            }
+            result.append(inspected)
+        }
+        return result.sorted { $0.compatibility.sortRank < $1.compatibility.sortRank }
+    }
+
     // MARK: - 静态解析与规则过滤
+
+    static func repositorySearchQuery(for raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 显式 GitHub 查询语法与仓库直达输入保持原样。
+        guard !trimmed.contains(":"), parseDirectRepositoryTarget(trimmed) == nil else { return trimmed }
+        let normalized = trimmed
+            .replacingOccurrences(of: "哔哩哔哩", with: "bilibili", options: .caseInsensitive)
+            .replacingOccurrences(of: "b站", with: "bilibili", options: .caseInsensitive)
+        let lower = normalized.lowercased()
+        if lower.contains("bilibili"), !lower.contains("musicfree"), !lower.contains("lx") {
+            return "bilibili musicfree"
+        }
+        return normalized
+    }
+
+    /// 内容识别仅判断支持的文件格式；可用性仍由导入时的沙箱与能力检查决定。
+    static func sourcePayloadKind(_ data: Data) -> GitHubConfigCandidate.Kind? {
+        guard data.count <= maximumCandidateBytes, let rawText = String(data: data, encoding: .utf8) else { return nil }
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
+        let cleanData = SourceDomainPolicy.stripJSONP(Data(text.utf8))
+        if let entries = SourceSubscriptionManifest.parseEntries(from: cleanData), !entries.isEmpty {
+            return .subscriptionManifest
+        }
+        if (try? JSONDecoder().decode(JSONTemplateDefinition.self, from: cleanData)) != nil {
+            return .jsonTemplateOrConfig
+        }
+        if let definitions = try? JSONDecoder().decode([JSONTemplateDefinition].self, from: cleanData), !definitions.isEmpty {
+            return .jsonTemplateOrConfig
+        }
+        let objects: [[String: Any]]
+        if let object = try? JSONSerialization.jsonObject(with: cleanData) as? [String: Any] {
+            objects = [object]
+        } else {
+            objects = (try? JSONSerialization.jsonObject(with: cleanData) as? [[String: Any]]) ?? []
+        }
+        if objects.contains(where: { object in
+            let kind = (object["kind"] as? String ?? object["type"] as? String ?? "").lowercased()
+            let address = object["baseURL"] as? String ?? object["url"] as? String ?? ""
+            return ["opensubsonic", "subsonic", "navidrome", "webdav"].contains(kind)
+                && ServerSourceConfig.normalizedBaseURL(from: address) != nil
+        }) {
+            return .jsonTemplateOrConfig
+        }
+        if text.contains("globalThis.lx") || text.contains("lx.on(") {
+            return .jsPlugin
+        }
+        let exportsPlugin = text.contains("module.exports") || text.contains("exports.")
+        let methods = [
+            "search", "getMediaSource", "getMusicInfo", "importMusicSheet", "getLyric", "getTopLists",
+            "resolve", "discover", "getRecommendSheetsByTag",
+        ]
+        if exportsPlugin, methods.contains(where: { text.contains($0) }) {
+            return .jsPlugin
+        }
+        return nil
+    }
 
     /// 识别 `owner/repo`、`https://github.com/owner/repo/...` 与 `raw.githubusercontent.com/...` 直达输入。
     static func parseDirectRepositoryTarget(_ raw: String) -> GitHubDirectTarget? {
@@ -545,7 +659,7 @@ final class GitHubSourceDiscovery: @unchecked Sendable {
         return Self.filterConfigCandidates(from: collected, repo: repo, branch: branch, preferredPath: preferredPath)
     }
 
-    private func performGET(url: URL, notFoundContext: String) async throws -> Data {
+    private func performGET(url: URL, notFoundContext: String, maximumBytes: Int? = nil) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = NetworkTimeouts.api
@@ -562,7 +676,8 @@ final class GitHubSourceDiscovery: @unchecked Sendable {
             for: request,
             session: session,
             allowedDomains: Self.allowedDomains,
-            networkAllowed: networkAllowed
+            networkAllowed: networkAllowed,
+            maximumBytes: maximumBytes
         )
         guard let http = response as? HTTPURLResponse else {
             throw GitHubDiscoveryError.invalidResponse

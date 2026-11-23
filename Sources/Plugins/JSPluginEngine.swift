@@ -419,6 +419,7 @@ final class JSPluginRuntime: @unchecked Sendable {
             "ok": (200...299).contains(http.statusCode),
             "status": http.statusCode,
             "statusCode": http.statusCode,
+            "url": response.url?.absoluteString ?? finalURL.absoluteString,
             "headers": responseHeaders,
             "data": parsedData,
             "body": parsedData,

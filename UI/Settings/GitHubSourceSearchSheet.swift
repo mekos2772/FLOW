@@ -35,6 +35,9 @@ struct GitHubSourceSearchSheet: View {
     @State private var inspectGeneration = 0
     @State private var searchTask: Task<Void, Never>?
     @State private var inspectTask: Task<Void, Never>?
+    @State private var queryTask: Task<Void, Never>?
+    @State private var submittedQuery = ""
+    @State private var configsByRepo: [String: [GitHubConfigCandidate]] = [:]
 
     // 只给通用关键词：不提供一键去找抓取商业平台的音源（兼容这些格式的代码照常保留）。
     private static let quickQueries: [(label: LocalizedStringKey, query: String)] = [
@@ -89,12 +92,21 @@ struct GitHubSourceSearchSheet: View {
                 .padding(.vertical, Spacing.xs)
         }
         .frame(width: 680, height: 500)
-        .onAppear {
+        .task {
             syncManagerSnapshot()
+            guard !RuntimeSandbox.isTestHost, !hasSearched else { return }
+            query = RuntimeSandbox.defaults.string(forKey: "sources.githubDiscoveryQuery") ?? "musicfree plugin"
+            runSearch()
         }
         .onDisappear {
+            queryTask?.cancel()
             searchTask?.cancel()
             inspectTask?.cancel()
+            searchGeneration &+= 1
+            inspectGeneration &+= 1
+        }
+        .onChange(of: query) { _, _ in
+            scheduleSearch()
         }
         .onChange(of: app?.sourceManager.revision ?? 0) { _, _ in
             syncManagerSnapshot()
@@ -259,7 +271,7 @@ struct GitHubSourceSearchSheet: View {
                         Text("外部多 API 预设")
                             .flowType(.body)
                             .fontWeight(.medium)
-                        Text("包含社区视频音频扩展与开放接口模板，默认均未启用，按需从外置目录或 GitHub 自动获取并导入。")
+                        Text("提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。")
                             .flowType(.caption)
                             .foregroundStyle(FlowColor.tertiaryText)
                     }
@@ -340,6 +352,26 @@ struct GitHubSourceSearchSheet: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
+                        Button {
+                            inspectTask?.cancel()
+                            inspectGeneration &+= 1
+                            isInspectingRepo = false
+                            selectedRepo = nil
+                            expandedManifestID = nil
+                            configs = allDiscoveredConfigs
+                        } label: {
+                            HStack {
+                                Text("全部结果")
+                                Spacer()
+                                if isSearching {
+                                    ProgressView().controlSize(.small)
+                                }
+                            }
+                            .flowType(.body)
+                            .padding(Spacing.xs)
+                            .background(selectedRepo == nil ? FlowColor.hover : Color.clear, in: RoundedRectangle(cornerRadius: Radius.control))
+                        }
+                        .buttonStyle(.plain)
                         ForEach(repos) { repo in
                             repositoryRow(repo)
                         }
@@ -401,37 +433,31 @@ struct GitHubSourceSearchSheet: View {
 
     private var repositoryConfigsPane: some View {
         Group {
-            if selectedRepo == nil {
-                centeredPlaceholder(
-                    symbol: "doc.text.magnifyingglass",
-                    text: "在左侧选择一个仓库，自动探测内部的插件脚本与配置文件",
-                    showsSpinner: false
-                )
-            } else if isInspectingRepo {
-                centeredPlaceholder(symbol: "doc.text.magnifyingglass", text: "正在扫描仓库配置文件…", showsSpinner: true)
+            if isInspectingRepo || (isSearching && configs.isEmpty) {
+                centeredPlaceholder(symbol: "doc.text.magnifyingglass", text: "正在自动检查音源文件…", showsSpinner: true)
             } else if configs.isEmpty {
                 centeredPlaceholder(
                     symbol: "questionmark.folder",
-                    text: "该仓库默认分支下未发现可识别的 .js 插件或 .json 音源配置",
+                    text: "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。",
                     showsSpinner: false
                 )
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Spacing.xs) {
-                        if let selectedRepo {
-                            HStack(spacing: Spacing.xs) {
-                                Text("已发现 \(configs.count) 个配置文件")
-                                    .flowType(.caption)
-                                    .foregroundStyle(FlowColor.tertiaryText)
-                                Spacer()
+                        HStack(spacing: Spacing.xs) {
+                            Text("已发现 \(configs.count) 个配置文件")
+                                .flowType(.caption)
+                                .foregroundStyle(FlowColor.tertiaryText)
+                            Spacer()
+                            if let selectedRepo {
                                 Text(verbatim: selectedRepo.fullName)
                                     .flowType(.caption)
                                     .foregroundStyle(FlowColor.tertiaryText)
                             }
-                            .padding(.horizontal, 2)
                         }
+                        .padding(.horizontal, 2)
                         ForEach(configs) { config in
-                            configCard(config, showRepoName: false)
+                            configCard(config, showRepoName: selectedRepo == nil)
                         }
                     }
                     .padding(Spacing.s)
@@ -511,11 +537,21 @@ struct GitHubSourceSearchSheet: View {
                                 .foregroundStyle(FlowColor.tertiaryText)
                         }
                     }
+                    if config.compatibility == .unsupported {
+                        Text("此文件不是支持的音源格式，需先适配。")
+                            .flowType(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if config.compatibility == .unchecked {
+                        Text("尚未检查，导入时会验证格式。")
+                            .flowType(.caption)
+                            .foregroundStyle(FlowColor.tertiaryText)
+                    }
                 }
 
                 Spacer(minLength: Spacing.xs)
 
-                if config.kind == .subscriptionManifest {
+                if config.kind == .subscriptionManifest && config.compatibility != .unsupported {
                     Button(isExpanded ? "收起" : "预览条目") {
                         toggleManifestPreview(config)
                     }
@@ -526,11 +562,16 @@ struct GitHubSourceSearchSheet: View {
                     ProgressView().controlSize(.small)
                 }
 
-                Button(importButtonTitle(for: config, isImported: isImported)) {
-                    importCandidate(id: config.id, url: config.rawURL, displayName: config.displayName)
+                if config.compatibility == .unsupported, let htmlURL = config.htmlURL {
+                    Link("查看源码", destination: htmlURL)
+                        .flowType(.caption)
+                } else {
+                    Button(importButtonTitle(for: config, isImported: isImported)) {
+                        importCandidate(id: config.id, url: config.rawURL, displayName: config.displayName)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isImporting || config.compatibility == .unsupported)
                 }
-                .buttonStyle(.bordered)
-                .disabled(isImporting)
             }
 
             if isExpanded {
@@ -624,8 +665,12 @@ struct GitHubSourceSearchSheet: View {
     }
 
     private func importButtonTitle(for config: GitHubConfigCandidate, isImported: Bool) -> LocalizedStringKey {
+        if config.compatibility == .unsupported { return "需适配" }
         if config.kind == .subscriptionManifest {
             return isImported ? "重新导入全部" : "导入全部"
+        }
+        if config.kind == .jsPlugin && config.compatibility == .recognized && !isImported {
+            return "适配并导入"
         }
         return isImported ? "重新导入" : "导入"
     }
@@ -705,11 +750,53 @@ struct GitHubSourceSearchSheet: View {
         statusMessage = String(localized: "已清除 GitHub Token")
     }
 
+    private var allDiscoveredConfigs: [GitHubConfigCandidate] {
+        repos.flatMap { configsByRepo[$0.id] ?? [] }
+            .sorted { $0.compatibility.sortRank < $1.compatibility.sortRank }
+    }
+
+    private func scheduleSearch() {
+        queryTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != submittedQuery else { return }
+        submittedQuery = ""
+        searchTask?.cancel()
+        inspectTask?.cancel()
+        searchGeneration &+= 1
+        inspectGeneration &+= 1
+        isSearching = false
+        isInspectingRepo = false
+        guard !trimmed.isEmpty else {
+            submittedQuery = ""
+            configs = []
+            repos = []
+            configsByRepo = [:]
+            selectedRepo = nil
+            errorMessage = nil
+            showingPresets = true
+            return
+        }
+        queryTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                runSearch()
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
     private func runSearch() {
+        queryTask?.cancel()
         guard let manager = app?.sourceManager else { return }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        submittedQuery = trimmed
+        RuntimeSandbox.defaults.set(trimmed, forKey: "sources.githubDiscoveryQuery")
         errorMessage = nil
         statusMessage = nil
         showingPresets = false
@@ -717,13 +804,17 @@ struct GitHubSourceSearchSheet: View {
         isSearching = true
         expandedManifestID = nil
         searchGeneration &+= 1
+        inspectGeneration &+= 1
         let generation = searchGeneration
         searchTask?.cancel()
         inspectTask?.cancel()
         isInspectingRepo = false
-
+        configs = []
+        configsByRepo = [:]
+        repos = []
+        selectedRepo = nil
         directTarget = manager.parseGitHubDirectTarget(trimmed)
-
+        let target = directTarget
         let activeMode = hasToken ? searchMode : .repositories
         searchTask = Task {
             defer {
@@ -736,23 +827,54 @@ struct GitHubSourceSearchSheet: View {
                     let hits = try await manager.searchGitHubFiles(query: trimmed)
                     guard !Task.isCancelled, searchGeneration == generation else { return }
                     configs = hits
-                    repos = []
-                    selectedRepo = nil
                 } else {
                     let foundRepos = try await manager.searchGitHubRepositories(query: trimmed)
                     guard !Task.isCancelled, searchGeneration == generation else { return }
                     repos = foundRepos
-                    configs = []
-                    if let first = foundRepos.first {
-                        selectRepo(first)
-                    } else {
-                        selectedRepo = nil
+                    var firstError: (any Error)?
+                    // 限制自动扫描范围，逐仓库呈现结果，避免一次消耗过多匿名请求额度。
+                    for repo in foundRepos.prefix(6) {
+                        try Task.checkCancellation()
+                        do {
+                            let matchedTarget = target.flatMap {
+                                "\($0.owner)/\($0.repo)".caseInsensitiveCompare(repo.fullName) == .orderedSame ? $0 : nil
+                            }
+                            let items = try await manager.inspectGitHubRepository(
+                                repo,
+                                branchOverride: matchedTarget?.branchHint,
+                                preferredPath: matchedTarget?.filePathHint
+                            )
+                            guard !Task.isCancelled, searchGeneration == generation else { return }
+                            configsByRepo[repo.id] = items
+                            if selectedRepo == nil {
+                                configs = allDiscoveredConfigs
+                            } else if selectedRepo?.id == repo.id, !isInspectingRepo {
+                                configs = items
+                            }
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch let error as SourceDomainPolicy.Violation {
+                            if case .networkDisabled = error { throw error }
+                            if firstError == nil { firstError = error }
+                        } catch let error as PlaybackError where error == .networkDisabled {
+                            throw error
+                        } catch let error as GitHubDiscoveryError {
+                            switch error {
+                            case .rateLimited, .unauthorized: throw error
+                            default: if firstError == nil { firstError = error }
+                            }
+                        } catch {
+                            if firstError == nil { firstError = error }
+                        }
+                    }
+                    if configs.isEmpty, let firstError {
+                        errorMessage = friendlyError(firstError)
                     }
                 }
             } catch is CancellationError {
                 return
             } catch {
-                guard searchGeneration == generation else { return }
+                guard !Task.isCancelled, searchGeneration == generation else { return }
                 errorMessage = friendlyError(error)
             }
         }
@@ -764,10 +886,16 @@ struct GitHubSourceSearchSheet: View {
         configs = []
         expandedManifestID = nil
         errorMessage = nil
-        isInspectingRepo = true
         inspectGeneration &+= 1
         let generation = inspectGeneration
+        let activeSearchGeneration = searchGeneration
         inspectTask?.cancel()
+        if let cached = configsByRepo[repo.id] {
+            configs = cached
+            isInspectingRepo = false
+            return
+        }
+        isInspectingRepo = true
 
         let matchedDirect: GitHubDirectTarget? = {
             guard let target = directTarget,
@@ -791,7 +919,10 @@ struct GitHubSourceSearchSheet: View {
                     branchOverride: branchOverride,
                     preferredPath: preferredPath
                 )
-                guard !Task.isCancelled, inspectGeneration == generation else { return }
+                guard !Task.isCancelled,
+                      inspectGeneration == generation,
+                      searchGeneration == activeSearchGeneration else { return }
+                configsByRepo[repo.id] = items
                 configs = items
             } catch is CancellationError {
                 return

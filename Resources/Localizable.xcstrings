@@ -1,6 +1,69 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "全部结果": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Results" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全部结果" } }
+      }
+    },
+    "查看源码": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Source" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "查看源码" } }
+      }
+    },
+    "需适配": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Adaptation Needed" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需适配" } }
+      }
+    },
+    "适配并导入": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Adapt & Import" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "适配并导入" } }
+      }
+    },
+    "正在自动检查音源文件…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checking source files automatically…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在自动检查音源文件…" } }
+      }
+    },
+    "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No supported source files found. API server code needs to be deployed and adapted into a source plugin first." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。" } }
+      }
+    },
+    "此文件不是支持的音源格式，需先适配。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This file needs adaptation to a supported source format." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此文件不是支持的音源格式，需先适配。" } }
+      }
+    },
+    "尚未检查，导入时会验证格式。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not checked yet. The format will be validated on import." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "尚未检查，导入时会验证格式。" } }
+      }
+    },
+    "提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Get and import open API templates for Audius, Radio Browser, and Internet Archive as needed." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。" } }
+      }
+    },
     "第三方声明": {
       "extractionState": "manual",
       "localizations": {

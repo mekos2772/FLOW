@@ -479,17 +479,19 @@ final class SourceManager: OfflineAudioResolving {
     }
 
     func searchGitHubFiles(query: String) async throws -> [GitHubConfigCandidate] {
-        try await githubDiscovery.searchFiles(query: query)
+        let candidates = try await githubDiscovery.searchFiles(query: query)
+        return try await githubDiscovery.inspectCandidates(candidates)
     }
 
     func inspectGitHubRepository(_ repo: GitHubRepoCandidate,
                                  branchOverride: String? = nil,
                                  preferredPath: String? = nil) async throws -> [GitHubConfigCandidate] {
-        try await githubDiscovery.inspectRepository(
+        let candidates = try await githubDiscovery.inspectRepository(
             repo,
             branchOverride: branchOverride,
             preferredPath: preferredPath
         )
+        return try await githubDiscovery.inspectCandidates(candidates)
     }
 
     func inspectGitHubManifest(at rawURL: URL) async throws -> [GitHubManifestEntry] {

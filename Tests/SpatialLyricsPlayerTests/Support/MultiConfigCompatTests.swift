@@ -7,7 +7,7 @@ import XCTest
 final class MultiConfigCompatTests: XCTestCase {
 
     private final class MockHTTPProtocol: URLProtocol, @unchecked Sendable {
-        nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, [String: String], Data))?
+        nonisolated(unsafe) static var handler: ((URLRequest) throws -> (Int, [String: String], Data))?
         nonisolated(unsafe) static var recordedRequests: [URLRequest] = []
 
         override class func canInit(with request: URLRequest) -> Bool { true }
@@ -15,16 +15,20 @@ final class MultiConfigCompatTests: XCTestCase {
 
         override func startLoading() {
             Self.recordedRequests.append(request)
-            let result = Self.handler?(request) ?? (404, [:], Data())
-            let response = HTTPURLResponse(
-                url: request.url ?? URL(string: "https://invalid.local")!,
-                statusCode: result.0,
-                httpVersion: "HTTP/1.1",
-                headerFields: result.1
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: result.2)
-            client?.urlProtocolDidFinishLoading(self)
+            do {
+                let result = try Self.handler?(request) ?? (404, [:], Data())
+                let response = HTTPURLResponse(
+                    url: request.url ?? URL(string: "https://invalid.local")!,
+                    statusCode: result.0,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: result.1
+                )!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: result.2)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
         }
 
         override func stopLoading() {}
@@ -50,6 +54,233 @@ final class MultiConfigCompatTests: XCTestCase {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [MockHTTPProtocol.self]
         return URLSession(configuration: cfg)
+    }
+
+    func testFetchTextJSONRequestAndResponseCompatibility() async throws {
+        let requestBody = #"{"query":"音乐 & blues"}"#
+        let responseBody = #"{"items":[{"id":"fetch-1","title":"Fetch Result"}]}"#
+        MockHTTPProtocol.handler = { request in
+            if request.url?.path == "/catalog" {
+                XCTAssertEqual(request.httpMethod, "POST")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Client"), "FLOW")
+                var body = request.httpBody ?? Data()
+                if let stream = request.httpBodyStream, body.isEmpty {
+                    stream.open()
+                    defer { stream.close() }
+                    var buffer = [UInt8](repeating: 0, count: 1024)
+                    while stream.hasBytesAvailable {
+                        let count = stream.read(&buffer, maxLength: buffer.count)
+                        guard count > 0 else { break }
+                        body.append(contentsOf: buffer.prefix(count))
+                    }
+                }
+                XCTAssertEqual(String(data: body, encoding: .utf8), requestBody)
+                return (201, ["Content-Type": "application/json", "X-Trace": "mock-trace"], Data(responseBody.utf8))
+            }
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/plain")
+            return (200, ["Content-Type": "text/plain"], Data("plain 音乐".utf8))
+        }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            module.exports = {
+                id: "fetch-compat",
+                allowedDomains: ["fetch.example.test"],
+                search() { return []; },
+                async inspectJSON() {
+                    const pending = fetch(new URL("https://fetch.example.test/catalog"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "X-Client": "FLOW" },
+                        body: JSON.stringify({ query: "音乐 & blues" })
+                    });
+                    const response = await pending;
+                    const body = response.json();
+                    return {
+                        fetchIsPromise: typeof pending.then === "function",
+                        bodyIsPromise: typeof body.then === "function",
+                        ok: response.ok, status: response.status, statusText: response.statusText,
+                        url: response.url,
+                        contentType: response.headers.get("cOnTeNt-TyPe"),
+                        trace: response.headers.get("X-TRACE"),
+                        missing: response.headers.get("X-Missing"),
+                        data: await body
+                    };
+                },
+                async inspectText() {
+                    const response = await fetch("https://fetch.example.test/text", {
+                        headers: [["Accept", "text/plain"]]
+                    });
+                    const body = response.text();
+                    return { ok: response.ok, bodyIsPromise: typeof body.then === "function", text: await body };
+                }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        let json = try await runtime.call("inspectJSON") as? [String: Any]
+        XCTAssertEqual(json?["fetchIsPromise"] as? Bool, true)
+        XCTAssertEqual(json?["bodyIsPromise"] as? Bool, true)
+        XCTAssertEqual(json?["ok"] as? Bool, true)
+        XCTAssertEqual(json?["status"] as? Int, 201)
+        XCTAssertEqual(json?["statusText"] as? String, "")
+        XCTAssertEqual(json?["url"] as? String, "https://fetch.example.test/catalog")
+        XCTAssertEqual(json?["contentType"] as? String, "application/json")
+        XCTAssertEqual(json?["trace"] as? String, "mock-trace")
+        XCTAssertTrue(json?["missing"] is NSNull)
+        let data = json?["data"] as? [String: Any]
+        XCTAssertEqual((data?["items"] as? [[String: Any]])?.first?["id"] as? String, "fetch-1")
+        let text = try await runtime.call("inspectText") as? [String: Any]
+        XCTAssertEqual(text?["ok"] as? Bool, true)
+        XCTAssertEqual(text?["bodyIsPromise"] as? Bool, true)
+        XCTAssertEqual(text?["text"] as? String, "plain 音乐")
+        XCTAssertEqual(MockHTTPProtocol.recordedRequests.count, 2)
+    }
+
+    func testFetchHTTPErrorResolvesAndInvalidJSONRejectsAsynchronously() async throws {
+        MockHTTPProtocol.handler = { _ in (503, ["Content-Type": "text/plain"], Data("maintenance".utf8)) }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            module.exports = {
+                id: "fetch-errors",
+                allowedDomains: ["fetch.example.test"],
+                async search(mode) {
+                    const response = await fetch("https://fetch.example.test/unavailable");
+                    const result = { ok: response.ok, status: response.status };
+                    if (mode === "text") {
+                        result.text = await response.text();
+                        return result;
+                    }
+                    let pending;
+                    try { pending = response.json(); }
+                    catch (_) { result.synchronousThrow = true; return result; }
+                    result.synchronousThrow = false;
+                    result.bodyIsPromise = typeof pending.then === "function";
+                    try { await pending; result.rejected = false; }
+                    catch (error) { result.rejected = true; result.errorName = error.name; }
+                    return result;
+                }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        let text = try await runtime.call("search", args: ["text"]) as? [String: Any]
+        XCTAssertEqual(text?["ok"] as? Bool, false)
+        XCTAssertEqual(text?["status"] as? Int, 503)
+        XCTAssertEqual(text?["text"] as? String, "maintenance")
+        let json = try await runtime.call("search", args: ["json"]) as? [String: Any]
+        XCTAssertEqual(json?["ok"] as? Bool, false)
+        XCTAssertEqual(json?["status"] as? Int, 503)
+        XCTAssertEqual(json?["synchronousThrow"] as? Bool, false)
+        XCTAssertEqual(json?["bodyIsPromise"] as? Bool, true)
+        XCTAssertEqual(json?["rejected"] as? Bool, true)
+        XCTAssertEqual(json?["errorName"] as? String, "SyntaxError")
+    }
+
+    func testFetchRejectsTransportFailure() async throws {
+        MockHTTPProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let runtime = try JSPluginRuntime(scriptSource: #"""
+            module.exports = {
+                id: "fetch-transport-error",
+                allowedDomains: ["fetch.example.test"],
+                search() {
+                    return fetch("https://fetch.example.test/offline").then(
+                        () => ({ resolved: true }),
+                        error => ({ resolved: false, isError: error instanceof Error, message: error.message })
+                    );
+                }
+            };
+            """#, session: session, secrets: InMemorySecretStore())
+        defer { runtime.invalidate() }
+
+        let result = try await runtime.call("search") as? [String: Any]
+        XCTAssertEqual(result?["resolved"] as? Bool, false)
+        XCTAssertEqual(result?["isError"] as? Bool, true)
+        XCTAssertFalse((result?["message"] as? String ?? "").isEmpty)
+        XCTAssertEqual(MockHTTPProtocol.recordedRequests.count, 1)
+    }
+
+    func testFetchNetworkAndDomainPolicyRejectionsNeverStartRequests() async throws {
+        MockHTTPProtocol.handler = { _ in
+            XCTFail("A rejected fetch must never reach URLSession's transport")
+            return (200, [:], Data("{}".utf8))
+        }
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        let cases = [
+            ("https://fetch.example.test/catalog", false),
+            ("https://blocked.example.test/catalog", true),
+            ("file:///private/catalog", true)
+        ]
+        for (url, enabled) in cases {
+            let runtime = try JSPluginRuntime(scriptSource: #"""
+                module.exports = {
+                    id: "fetch-gating",
+                    allowedDomains: ["fetch.example.test"],
+                    async search(url) { return (await fetch(url)).json(); }
+                };
+                """#, session: session, secrets: InMemorySecretStore(), networkAllowed: { enabled })
+            defer { runtime.invalidate() }
+            do {
+                _ = try await runtime.call("search", args: [url])
+                XCTFail("Fetch must reject \(url) when networkAllowed is \(enabled)")
+            } catch let error as PlaybackError {
+                XCTAssertFalse(enabled)
+                XCTAssertEqual(error, .networkDisabled)
+            } catch {
+                XCTAssertTrue(enabled, "Disabled networking must preserve PlaybackError.networkDisabled")
+                XCTAssertFalse(error.localizedDescription.isEmpty)
+            }
+        }
+        XCTAssertTrue(MockHTTPProtocol.recordedRequests.isEmpty)
+    }
+
+    func testExplicitEmptySearchTypesDisableSearchButKeepCollectionImport() async throws {
+        let source = try JSPluginSource(scriptSource: #"""
+            module.exports = {
+                id: "collection-only",
+                supportedSearchType: [],
+                search() {},
+                importMusicSheet(url) {
+                    return { data: [{ id: "collection-1", title: "Imported Collection", artist: "Mock", sourceURL: url }] };
+                },
+                getMediaSource(item) { return { url: "https://collection.example.test/" + item.id }; }
+            };
+            """#, secrets: InMemorySecretStore(), networkAllowed: { false })
+        defer { source.runtime.invalidate() }
+
+        XCTAssertFalse(source.manifest.capabilities.hasSearch)
+        XCTAssertFalse(source.descriptor.supportsSearch)
+        XCTAssertTrue(source.manifest.capabilities.supportedSearchTypes.isEmpty)
+        XCTAssertTrue(source.manifest.capabilities.hasResolveQuery)
+        XCTAssertTrue(source.manifest.capabilities.hasGetMediaSource)
+        XCTAssertTrue(source.canHandleQuery("https://collection.example.test/sheet/1"))
+        let search = try await source.search(SearchRequest(query: "unused"))
+        XCTAssertTrue(search.isEmpty)
+        let tracks = try await source.resolveQuery("https://collection.example.test/sheet/1")
+        XCTAssertEqual(tracks.map(\.externalID), ["collection-1"])
+        XCTAssertEqual(tracks.first?.title, "Imported Collection")
+    }
+
+    func testMissingAndNonemptySearchTypesRetainSearchCapability() async throws {
+        for declaration in ["", "supportedSearchType: [\"music\"],"] {
+            let source = try JSPluginSource(scriptSource: """
+                module.exports = {
+                    id: "search-types-compat",
+                    \(declaration)
+                    search(query, page, type) { return [{ id: type, title: query, artist: "Mock" }]; }
+                };
+                """, secrets: InMemorySecretStore(), networkAllowed: { false })
+            defer { source.runtime.invalidate() }
+            XCTAssertTrue(source.manifest.capabilities.hasSearch)
+            XCTAssertTrue(source.descriptor.supportsSearch)
+            let tracks = try await source.search(SearchRequest(query: "Available"))
+            XCTAssertEqual(tracks.map(\.externalID), ["music"])
+        }
     }
 
     func testTSCompiledMusicFreeNavidromePattern() async throws {

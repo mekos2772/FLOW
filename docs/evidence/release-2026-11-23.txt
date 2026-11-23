@@ -12,7 +12,7 @@ XCResult：/tmp/slp-verify/Logs/Test/Test-SpatialLyricsPlayer-2026.11.23_01-43-5
 
 2. Beta 安装包
 产物：`./Scripts/package-release.sh` 生成 `dist/FLOW-0.1.0-arm64.dmg`（18 MB，UDZO，hdiutil verify VALID；挂载后 codesign --verify --deep --strict 通过；Resources 里含 ONNXRuntime-LICENSE.txt 与 ONNXRuntime-ThirdPartyNotices.txt），发布时上传到 GitHub Releases
-SHA-256：56c3a99c98c2e42786ebe8d764637da4762b2fb1f424b26025a4577c52f072bc
+SHA-256：c2d15de6b7f68244a757992b6ae418ffac4c53a956d143d772991af070e55adb
 内容：FLOW.app（来自上面同一次 verify 的 Release 产物 /tmp/slp-release，版本 0.1.0 (1)，arm64，macOS 14+）+ Applications 快捷方式
 签名：ad-hoc（本机 0 个签名身份）。顺序：OnnxRuntime.framework → 小组件（Widget.entitlements）→ 主程序（App.entitlements，沙盒 + App Group + 联网客户端/本机服务 + 下载目录只读 + 用户选择文件读写）
   codesign --verify --deep --strict：通过（挂载 DMG 后再验一次同样通过）
@@ -35,3 +35,33 @@ SHA-256：56c3a99c98c2e42786ebe8d764637da4762b2fb1f424b26025a4577c52f072bc
 
 5. 开源整理后复测（01:48）
 - 新包冷启动：搜索框占位「搜索歌名或歌手」、引导第 1 步文案不再提 BV 号；关于页资源里有 ONNXRuntime-LICENSE.txt 与 ONNXRuntime-ThirdPartyNotices.txt。
+
+6. 发布
+- GitHub：https://github.com/mekos2772/FLOW （public，main 分支，首个提交 606 个文件）
+- Release：https://github.com/mekos2772/FLOW/releases/tag/v0.1.0 ，资产 FLOW-0.1.0-arm64.dmg（18,057,015 字节）
+
+7. 0.1.1 修复版（17:10 起）
+范围：歌词错配（长标题把歌手当成歌名）、GitHub 音源发现需手动检索且兼容格式接不进来、部分 MusicFree 插件缺 fetch / 重定向最终地址 / 合集插件被误判为可搜歌。
+版本：0.1.1 (2)（工程 MARKETING_VERSION / CURRENT_PROJECT_VERSION 同步上调）。
+
+门禁（干净 derivedData）：
+  rm -rf /tmp/slp-verify && ./Scripts/verify.sh
+  结果：Executed 1335 tests, with 14 tests skipped and 0 failures；无测试进程崩溃/重启
+  architecture-lint: OK；dead-code-scan: OK；Release 构建 0 警告；check-doc-numbers: OK
+  新增回归：书名号歌名优先、搜索关键词缩短后仍按完整歌名核对、离线拒用异名缓存、
+    GitHub 查询归一与内容识别、候选下载 2 MB 上限、按内容而非后缀导入、fetch 文本/JSON 与
+    非 2xx resolve、显式 supportedSearchType: [] 禁用搜索、重定向最终地址与跨源秘密头清理。
+
+实网专项（默认跳过，显式开启后执行）：
+  GitHub 检索「B站 API」→ 4 个仓库；只读识别出 bilibili.js / bilibili-fetch.js 等插件，
+    bili-proxy/server.js 判为不支持；识别过程未执行候选脚本。
+  歌词检索同一条长标题 → 匹配《珊瑚海》(Jay Chou feat. Lara Liang, id 5646465)，
+    缓存不再写入《反方向的钟》。
+
+安装包：
+  产物：dist/FLOW-0.1.1-arm64.dmg（17,880,937 字节，UDZO，hdiutil verify VALID）
+  SHA-256：bd06741cfcade643e2e47e5580f498aaa31b8138b71970b55850e87861c9aec5
+  挂载后 codesign --verify --deep --strict 通过；CFBundleShortVersionString 0.1.1 / CFBundleVersion 2
+本机替换安装：旧包完整保留为回滚副本；新可执行文件与安装包内文件 SHA-256 一致（39f09527…e5eb）；
+  曲库、设置与音源配置沿用原容器未被覆盖。
+仍未验证：干净机器首次安装（右键打开）、App Group 共享、FLOW Voice 有声试听与模型整链下载。

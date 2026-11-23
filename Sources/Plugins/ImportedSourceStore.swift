@@ -289,14 +289,18 @@ final class ImportedSourceStore: @unchecked Sendable {
     func importPayload(data: Data, filenameHint: String, originURL: String?) async throws -> [ImportedProvider] {
         let ext = (filenameHint as NSString).pathExtension.lowercased()
         let stem = (filenameHint as NSString).deletingPathExtension
-        var rawText = String(data: data, encoding: .utf8) ?? ""
-        if rawText.hasPrefix("\u{FEFF}") {
-            rawText.removeFirst()
-        }
-        let cleanData = Data(rawText.utf8)
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawText = (String(data: data, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
+        let cleanData = SourceDomainPolicy.stripJSONP(Data(rawText.utf8))
+        let trimmed = (String(data: cleanData, encoding: .utf8) ?? rawText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let looksLikeScript = rawText.contains("module.exports")
+            || rawText.contains("exports.")
+            || rawText.contains("globalThis.lx")
+            || rawText.contains("lx.on(")
+            || rawText.contains("@name")
 
-        if ext == "json" || trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") || (ext == "json" && !looksLikeScript) {
             if let batch = try await importJSONCollectionIfPresent(data: cleanData, trimmed: trimmed, originURL: originURL) {
                 return batch
             }
@@ -307,11 +311,7 @@ final class ImportedSourceStore: @unchecked Sendable {
             return [try importJSONTemplate(data: cleanData, originURL: originURL)]
         }
 
-        if ext == "js"
-            || rawText.contains("module.exports")
-            || rawText.contains("exports.")
-            || rawText.contains("globalThis.lx")
-            || rawText.contains("@name") {
+        if ext == "js" || looksLikeScript {
             return [try importJSScript(script: rawText, fallbackID: stem, originURL: originURL)]
         }
 

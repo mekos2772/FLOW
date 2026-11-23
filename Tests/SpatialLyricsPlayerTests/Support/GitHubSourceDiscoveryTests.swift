@@ -74,6 +74,163 @@ final class GitHubSourceDiscoveryTests: XCTestCase {
         XCTAssertNil(GitHubSourceDiscovery.parseDirectRepositoryTarget("https://example.com/owner/repo"))
     }
 
+    func testRepositoryQueriesPreferCompatibleFormatsAndPreserveExplicitTargets() async throws {
+        for query in ["B站 API", "哔哩哔哩", "bilibili music api"] {
+            XCTAssertEqual(GitHubSourceDiscovery.repositorySearchQuery(for: query), "bilibili musicfree")
+        }
+        for query in ["owner/repo", "https://github.com/owner/repo/blob/dev/source.js", "bilibili topic:api", "bilibili lx", "musicfree plugin"] {
+            XCTAssertEqual(GitHubSourceDiscovery.repositorySearchQuery(for: query), query)
+        }
+        MockGitHubProtocol.handler = { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            XCTAssertEqual(components?.queryItems?.first { $0.name == "q" }?.value, "bilibili musicfree")
+            XCTAssertNil(components?.queryItems?.first { $0.name == "sort" }, "兼容插件应按相关性排序，避免被高星后端项目淹没")
+            return (200, [:], Data(#"{"items":[]}"#.utf8))
+        }
+        let discovery = GitHubSourceDiscovery(session: makeSession(), secrets: InMemorySecretStore())
+        _ = try await discovery.searchRepositories(query: "B站 API")
+        XCTAssertEqual(MockGitHubProtocol.recordedRequests.count, 1)
+    }
+
+    func testSourcePayloadRecognitionRejectsBackendsAndOrdinaryJSON() {
+        let supported: [(String, GitHubConfigCandidate.Kind)] = [
+            (#"module.exports = { async search(q) { return { data: [] }; }, getMediaSource() {} };"#, .jsPlugin),
+            (#"exports.default = { importMusicSheet: async function(url) { return []; } };"#, .jsPlugin),
+            (#"module.exports = { discover() { return []; } };"#, .jsPlugin),
+            (#"module.exports = { getRecommendSheetsByTag() { return []; } };"#, .jsPlugin),
+            (#"globalThis.lx.on('request', function() {});"#, .jsPlugin),
+            (#"{"plugins":[{"url":"https://example.com/plugin.js"}]}"#, .subscriptionManifest),
+            (#"{"schema":"flow-source-v1","name":"Test","search":{"url":"https://api.example.com/search"}}"#, .jsonTemplateOrConfig),
+            (#"{"kind":"navidrome","baseURL":"https://music.example.com"}"#, .jsonTemplateOrConfig),
+        ]
+        for (payload, expected) in supported {
+            XCTAssertEqual(GitHubSourceDiscovery.sourcePayloadKind(Data(payload.utf8)), expected, payload)
+        }
+        for payload in [
+            #"const http = require('http'); http.createServer(function(req, res) {}).listen(3000);"#,
+            #"{"name":"backend","scripts":{"start":"node server.js"}}"#,
+            #"{"code":0,"data":{"id":"song","url":"https://example.com/song.mp3"}}"#,
+            #"{"kind":"navidrome","baseURL":"file:///tmp/music"}"#,
+            "<html>not a plugin</html>",
+        ] {
+            XCTAssertNil(GitHubSourceDiscovery.sourcePayloadKind(Data(payload.utf8)), payload)
+        }
+        XCTAssertNil(GitHubSourceDiscovery.sourcePayloadKind(Data(repeating: 65, count: 2_000_001)))
+    }
+
+    func testCandidateInspectionReadsWithoutExecutionAndKeepsDownloadFailuresRetryable() async throws {
+        let secrets = InMemorySecretStore()
+        let flag = MutableFlag()
+        let discovery = GitHubSourceDiscovery(session: makeSession(), secrets: secrets, networkAllowed: { flag.value })
+        try discovery.saveToken("ghp_fixture_secret")
+        let paths = ["server.js", "source.json", "subscription.js", "unavailable.js"]
+        let candidates = paths.map { path in
+            GitHubConfigCandidate(
+                id: path, displayName: path, path: path, kind: .jsonTemplateOrConfig,
+                rawURL: URL(string: "https://raw.githubusercontent.com/demo/sources/main/\(path)")!,
+                htmlURL: nil, sizeBytes: nil, repoFullName: "demo/sources"
+            )
+        }
+        MockGitHubProtocol.handler = { request in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"), "Token 不得传给 raw 或 CDN")
+            switch request.url?.lastPathComponent {
+            case "server.js":
+                return (200, [:], Data("require('http').createServer(function() {}).listen(3000);".utf8))
+            case "source.json":
+                let script = #"throw new Error('discovery must never execute scripts'); flow.request({url:'https://must-not-contact.example/'}); module.exports = { search() {}, getMediaSource() {} };"#
+                return (200, [:], Data(script.utf8))
+            case "subscription.js":
+                return (200, [:], Data(#"{"plugins":[{"url":"https://example.com/plugin.js"}]}"#.utf8))
+            default:
+                return (503, [:], Data())
+            }
+        }
+        let inspected = try await discovery.inspectCandidates(candidates)
+        XCTAssertEqual(inspected.map(\.id), ["source.json", "subscription.js", "unavailable.js", "server.js"])
+        XCTAssertEqual(inspected.map(\.compatibility), [.recognized, .recognized, .unchecked, .unsupported])
+        XCTAssertEqual(inspected[0].kind, .jsPlugin, "以内容修正文件后缀推断的类型")
+        XCTAssertEqual(inspected[1].kind, .subscriptionManifest)
+        XCTAssertEqual(secrets.load(account: GitHubSourceDiscovery.tokenAccountKey), "ghp_fixture_secret")
+        XCTAssertTrue(MockGitHubProtocol.recordedRequests.allSatisfy {
+            ["raw.githubusercontent.com", "cdn.jsdelivr.net"].contains($0.url?.host ?? "")
+        }, "内容识别不得执行脚本中的网络请求")
+        XCTAssertTrue(MockGitHubProtocol.recordedRequests.contains { $0.url?.host == "cdn.jsdelivr.net" })
+
+        MockGitHubProtocol.recordedRequests = []
+        flag.value = false
+        do {
+            _ = try await discovery.inspectCandidates(candidates)
+            XCTFail("联网关闭时不得下载候选内容")
+        } catch let error as SourceDomainPolicy.Violation {
+            guard case .networkDisabled = error else { return XCTFail("错误类型不符：\(error)") }
+        }
+        XCTAssertTrue(MockGitHubProtocol.recordedRequests.isEmpty)
+    }
+
+    func testCandidateInspectionBoundsAutomaticDownloads() async throws {
+        MockGitHubProtocol.handler = { _ in
+            (200, [:], Data("module.exports = { search() {} };".utf8))
+        }
+        let candidates = (0..<10).map { index in
+            GitHubConfigCandidate(
+                id: "\(index)", displayName: "Source \(index)", path: "\(index).js", kind: .jsPlugin,
+                rawURL: URL(string: "https://raw.githubusercontent.com/demo/repo/main/\(index).js")!,
+                htmlURL: nil, sizeBytes: nil, repoFullName: "demo/repo"
+            )
+        }
+        let discovery = GitHubSourceDiscovery(session: makeSession(), secrets: InMemorySecretStore())
+        let inspected = try await discovery.inspectCandidates(candidates)
+        XCTAssertEqual(MockGitHubProtocol.recordedRequests.count, 8)
+        XCTAssertEqual(inspected.filter { $0.compatibility == .recognized }.count, 8)
+        XCTAssertEqual(inspected.filter { $0.compatibility == .unchecked }.map(\.id), ["8", "9"])
+    }
+
+    func testOversizedCandidateDownloadsRemainUncheckedAndSkipMirrors() async throws {
+        MockGitHubProtocol.handler = { _ in
+            (200, ["Content-Length": "2000001"], Data("module.exports = { search() {} };".utf8))
+        }
+        let discovery = GitHubSourceDiscovery(session: makeSession(), secrets: InMemorySecretStore())
+        let candidates = [nil, 2_000_001].enumerated().map { index, size in
+            GitHubConfigCandidate(
+                id: "\(index)", displayName: "Source \(index)", path: "\(index).js", kind: .jsPlugin,
+                rawURL: URL(string: "https://raw.githubusercontent.com/demo/repo/main/\(index).js")!,
+                htmlURL: nil, sizeBytes: size, repoFullName: "demo/repo"
+            )
+        }
+        let inspected = try await discovery.inspectCandidates(candidates)
+        XCTAssertEqual(inspected.map(\.compatibility), [.unchecked, .unchecked])
+        XCTAssertEqual(MockGitHubProtocol.recordedRequests.count, 1, "声明超限时不下载，实际超限时不再重复拉取镜像")
+    }
+
+    func testJSONPSourceImportUsesContentInsteadOfJavaScriptFilename() async throws {
+        let store = ImportedSourceStore(directory: tempDir, session: makeSession(), secrets: InMemorySecretStore())
+        let payload = #"cb({"schema":"flow-source-v1","id":"jsonp-demo","name":"JSONP Demo","search":{"url":"https://api.example.com/search"}});"#
+        let imported = try await store.importPayload(
+            data: Data(("  \u{FEFF}" + payload).utf8),
+            filenameHint: "source.js",
+            originURL: "https://example.com/source.js"
+        )
+        XCTAssertEqual(imported.count, 1)
+        guard let first = imported.first, case .json = first else { return XCTFail("JSONP 模板应按 JSON 导入") }
+        XCTAssertEqual(store.loadRecords().first?.kind, .jsonTemplate)
+    }
+
+    func testLiveGitHubDiscoveryFindsCompatibleBilibiliPluginsWithoutImporting() async throws {
+        try LiveTestGate.skipUnlessLive("真实 GitHub 候选检查，需设置 SLP_LIVE_TEST=1；仅下载和识别内容，不执行插件")
+        let discovery = GitHubSourceDiscovery(secrets: InMemorySecretStore())
+        let repos = try await discovery.searchRepositories(query: "B站 API")
+        let repo = try XCTUnwrap(repos.first { $0.fullName == "martin65536/bilibili-musicfree" })
+        let candidates = try await discovery.inspectRepository(repo)
+        let inspected = try await discovery.inspectCandidates(candidates)
+        let recognized = inspected.filter { $0.compatibility == .recognized }
+        XCTAssertTrue(recognized.contains { $0.path == "bilibili.js" && $0.kind == .jsPlugin })
+        XCTAssertTrue(recognized.contains { $0.path == "bilibili-fetch.js" && $0.kind == .jsPlugin })
+        if let backend = inspected.first(where: { $0.path == "bili-proxy/server.js" }) {
+            XCTAssertEqual(backend.compatibility, .unsupported)
+        }
+        print("Live GitHub discovery: \(repos.count) repositories; recognized: \(recognized.map(\.path).joined(separator: ", "))")
+    }
+
     func testRepositorySearchAndInspectFiltersNoiseAndPreservesUnicodePaths() async throws {
         MockGitHubProtocol.handler = { req in
             let url = req.url?.absoluteString ?? ""
@@ -316,13 +473,13 @@ final class GitHubSourceDiscoveryTests: XCTestCase {
                 {
                   "truncated": false,
                   "tree": [
-                    { "path": "demo-source.js", "type": "blob", "size": 512 }
+                    { "path": "demo-source.json", "type": "blob", "size": 512 }
                   ]
                 }
                 """#
                 return (200, [:], Data(treeJSON.utf8))
             }
-            if url == "https://raw.githubusercontent.com/demo/music-hub/main/demo-source.js" {
+            if url == "https://raw.githubusercontent.com/demo/music-hub/main/demo-source.json" {
                 let pluginJS = #"""
                 module.exports = {
                     id: "gh-demo-source",
@@ -362,6 +519,9 @@ final class GitHubSourceDiscoveryTests: XCTestCase {
         let configs = try await manager.inspectGitHubRepository(repo)
         XCTAssertEqual(configs.count, 1)
         let config = try XCTUnwrap(configs.first)
+        XCTAssertEqual(config.kind, .jsPlugin)
+        XCTAssertEqual(config.compatibility, .recognized)
+        XCTAssertEqual(config.rawURL.pathExtension, "json", "后缀错误的 JS 仍须从识别一直走通到导入和搜索")
 
         let imported = try await manager.importSources(from: config.rawURL)
         XCTAssertEqual(imported.count, 1)

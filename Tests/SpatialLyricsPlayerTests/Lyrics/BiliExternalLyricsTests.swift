@@ -145,3 +145,105 @@ final class LRCLIBLiveTests: XCTestCase {
         XCTAssertGreaterThan(lines.first?.start ?? 0, 0, "第一行不该是 0 秒")
     }
 }
+
+@MainActor
+final class LyricTitleMatchingRegressionTests: XCTestCase {
+    private let decoratedTitle = "【𝐇𝐢-𝐑𝐞𝐬·无损音质】《珊瑚海》-周杰伦/Lara梁心颐-“蔚蓝的珊瑚海，错过瞬间苍白”"
+
+    override func setUp() {
+        super.setUp()
+        FakeBiliTransport.reset()
+    }
+
+    private func makeDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flow-lyric-title-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func track() -> Track {
+        Track(sourceID: SourceID("js-bilibili-fetch"), externalID: "coral-regression",
+              title: decoratedTitle, artist: "视频投稿者", duration: 256)
+    }
+
+    func testBookTitleWinsOverFollowingArtistAndPromotionalText() {
+        for raw in [decoratedTitle, "在专业录音棚听《珊瑚海》 - 周杰伦", "【4K顶级修复】《珊瑚海》—周杰伦 梁心颐 无损音质"] {
+            XCTAssertEqual(LyricQueryNormalizer.parseTitle(raw).title, "珊瑚海", raw)
+            let candidates = LyricQueryNormalizer.titleCandidates(raw)
+            XCTAssertFalse(candidates.isEmpty)
+            XCTAssertTrue(candidates.allSatisfy { $0.title == "珊瑚海" }, "书名号外的歌手不能成为备选歌名：\(candidates)")
+        }
+    }
+
+    func testHyphenInsideExplicitSongTitleIsPreserved() {
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle("《Anti-Hero》-Taylor Swift【Official Audio】").title, "Anti-Hero")
+        XCTAssertEqual(LyricQueryNormalizer.titleCandidates("《Anti-Hero》-Taylor Swift").first?.title, "Anti-Hero")
+    }
+
+    func testAutomaticSearchRejectsSwappedArtistAndSongMetadata() async throws {
+        FakeBiliTransport.routes = [("lrclib.net", [[
+            "id": 39138171, "trackName": "周杰伦", "artistName": "反方向的钟",
+            "duration": 258.0, "syncedLyrics": "[00:01.00]另一首歌"
+        ]])]
+        let aggregator = ExternalLyricsAggregator(wordLevelLyrics: nil, lrclib: LRCLIBSource(session: FakeBiliTransport.makeSession()))
+        let found = try await aggregator.searchRelaxed(title: decoratedTitle, artist: "视频投稿者", duration: 256)
+        XCTAssertTrue(found.isEmpty, "时长接近也不能把歌手名当成歌名采用")
+        XCTAssertFalse(FakeBiliTransport.requested.isEmpty)
+        for request in FakeBiliTransport.requested {
+            let components = URLComponents(string: request)
+            XCTAssertEqual(components?.queryItems?.first { $0.name == "track_name" }?.value, "珊瑚海")
+        }
+    }
+
+    func testRelaxedQueryKeepsTheOriginalSongTitleAsMatchTarget() async throws {
+        FakeBiliTransport.routes = [("lrclib.net", [[
+            "id": 2, "trackName": "Long", "artistName": "Other", "duration": 256.0,
+            "syncedLyrics": "[00:01.00]another song"
+        ]])]
+        let aggregator = ExternalLyricsAggregator(wordLevelLyrics: nil, lrclib: LRCLIBSource(session: FakeBiliTransport.makeSession()))
+        let found = try await aggregator.searchRelaxed(title: "Long Song With Many Words", artist: nil, duration: 256)
+        XCTAssertTrue(found.isEmpty, "搜索缩短后的关键词不能取代完整歌名作为匹配标准")
+    }
+
+    func testOfflineFallbackDoesNotReuseLyricsCachedUnderAnUnrelatedTitle() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = LyricDocumentCache(directory: directory)
+        let current = track()
+        let key = TrackIdentity.storageKey(current.identity)
+        cache.store(identity: key, title: "周杰伦", lrc: "[00:01.00]另一首歌")
+        let aggregator = ExternalLyricsAggregator(cache: cache, wordLevelLyrics: nil)
+        let stale = await aggregator.cachedOfflineLyrics(for: current)
+        XCTAssertNil(stale, "不能绕过歌名检查重新取回已失配的旧缓存")
+        cache.store(identity: key, title: "珊瑚海", lrc: "[00:01.00]正确的歌词")
+        let correct = await aggregator.cachedOfflineLyrics(for: current)
+        XCTAssertEqual(correct?.lines.first?.text, "正确的歌词")
+    }
+
+    func testAutomaticMatchIsCachedWithTheCanonicalSongTitle() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        FakeBiliTransport.routes = [("lrclib.net", [[
+            "id": 1, "trackName": "珊瑚海", "artistName": "周杰伦", "duration": 256.0,
+            "syncedLyrics": "[00:01.00]正确的歌词"
+        ]])]
+        let cache = LyricDocumentCache(directory: directory)
+        let current = track()
+        let aggregator = ExternalLyricsAggregator(cache: cache, wordLevelLyrics: nil, lrclib: LRCLIBSource(session: FakeBiliTransport.makeSession()))
+        let document = try await aggregator.resolve(for: current, allowNetwork: true)
+        XCTAssertEqual(document?.lines.first?.text, "正确的歌词")
+        XCTAssertNotNil(cache.load(identity: TrackIdentity.storageKey(current.identity), title: "珊瑚海"))
+        XCTAssertNil(cache.load(identity: TrackIdentity.storageKey(current.identity), title: "周杰伦"))
+    }
+
+    func testLiveDecoratedSongTitleFindsCoralSeaInsteadOfTheReverseClock() async throws {
+        try LiveTestGate.skipUnlessLive("真实 LRCLIB 歌名检索，需设置 SLP_LIVE_TEST=1")
+        let aggregator = ExternalLyricsAggregator(wordLevelLyrics: nil)
+        let found = try await aggregator.searchRelaxed(title: decoratedTitle, artist: nil, duration: 256)
+        let candidate = try XCTUnwrap(found.first)
+        XCTAssertEqual(LyricQueryNormalizer.normalize(candidate.trackName), "珊瑚海")
+        XCTAssertFalse(candidate.syncedLyrics?.contains("ㄅㄆㄇㄈ") ?? true)
+        print("Live lyric match: \(candidate.trackName) / \(candidate.artistName), id=\(candidate.id)")
+    }
+}

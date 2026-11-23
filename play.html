@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOW — 可交互演示</title>
+<meta name="description" content="在浏览器里试玩 FLOW：真实播放、逐行歌词、五种形态切换与沉浸模式。">
+<link rel="icon" href="assets/icon.png">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --surface: #121215;
+    --surface-2: #191920;
+    --text: #f2f2f5;
+    --text-2: #a0a0ab;
+    --text-3: #6b6b76;
+    --line: #26262e;
+    --accent: #7c8cff;
+    --win: #16161a;
+    --chrome: #1c1c21;
+    --radius-win: 14px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+                 "PingFang SC", "Hiragino Sans GB", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* 桌面背景 */
+  .desktop {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(1100px 620px at 18% 8%, rgba(70, 90, 180, 0.20), transparent 62%),
+      radial-gradient(900px 560px at 86% 84%, rgba(150, 70, 130, 0.16), transparent 60%),
+      #08080a;
+    z-index: 0;
+  }
+
+  .stage {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- 顶部条 ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(10,10,12,0.7);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    position: relative;
+    z-index: 30;
+  }
+
+  .topbar .brand {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 14px; font-weight: 600; letter-spacing: 0.02em;
+    text-decoration: none; color: var(--text);
+  }
+  .topbar .brand img { width: 20px; height: 20px; border-radius: 5px; }
+
+  .topbar .hint {
+    font-size: 12.5px; color: var(--text-3);
+  }
+
+  .topbar .spacer { flex: 1; }
+
+  .topbar .navlinks { display: flex; gap: 18px; font-size: 13.5px; }
+  .topbar .navlinks a { color: var(--text-2); text-decoration: none; }
+  .topbar .navlinks a:hover { color: var(--text); }
+
+  .dl {
+    padding: 7px 15px; border-radius: 8px; background: var(--text);
+    color: #0a0a0c; font-size: 13px; font-weight: 500; text-decoration: none;
+  }
+
+  /* ---------- 舞台 ---------- */
+  .arena {
+    flex: 1;
+    position: relative;
+    padding: 34px 28px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  /* 形态切换器 */
+  .modebar {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    background: rgba(255,255,255,0.055);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(12px);
+  }
+
+  .modebar button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+    white-space: nowrap;
+  }
+
+  .modebar button:hover { color: var(--text); }
+
+  .modebar button[aria-selected="true"] {
+    background: rgba(255,255,255,0.11);
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* 舞台底板：把播放器"放在桌面上" */
+  .desk {
+    position: relative;
+    width: 100%;
+    max-width: 1100px;
+    min-height: 620px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 20px;
+    border: 1px dashed rgba(255,255,255,0.06);
+    padding: 28px;
+  }
+
+  /* ---------- 播放器窗口 ---------- */
+  .player {
+    position: relative;
+    background: var(--win);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: var(--radius-win);
+    box-shadow: 0 34px 90px -20px rgba(0,0,0,0.85), 0 0 0 0.5px rgba(0,0,0,0.5);
+    overflow: hidden;
+    transition: width 0.5s cubic-bezier(.32,.72,0,1),
+                height 0.5s cubic-bezier(.32,.72,0,1),
+                border-radius 0.45s ease,
+                background 0.35s ease;
+    width: 1020px;
+    height: 620px;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 完整形态布局 */
+  .p-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.055);
+    flex: none;
+  }
+
+  .traffic { display: flex; gap: 7px; }
+  .traffic i {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #3a3a42; display: block;
+  }
+
+  .p-logo { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); }
+  .p-logo svg { opacity: 0.8; }
+
+  .search {
+    flex: 1;
+    max-width: 420px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 13px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: var(--text-3);
+    font-size: 13px;
+    cursor: text;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .search:hover { background: rgba(255,255,255,0.07); }
+  .search:focus-within { border-color: rgba(124,140,255,0.5); background: rgba(255,255,255,0.08); }
+  .search input {
+    flex: 1; border: 0; background: none; outline: none;
+    color: var(--text); font: inherit; font-size: 13px;
+  }
+  .search input::placeholder { color: var(--text-3); }
+
+  .modebtns { display: flex; gap: 2px; padding: 2px; background: rgba(255,255,255,0.05); border-radius: 8px; }
+  .modebtns button {
+    appearance: none; border: 0; background: none; color: var(--text-3);
+    font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    transition: background 0.16s, color 0.16s;
+  }
+  .modebtns button:hover { color: var(--text-2); }
+  .modebtns button[aria-selected="true"] { background: rgba(255,255,255,0.1); color: var(--text); }
+
+  .p-body { flex: 1; display: flex; min-height: 0; }
+
+  .sidebar {
+    width: 178px;
+    flex: none;
+    border-right: 1px solid rgba(255,255,255,0.055);
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+  }
+
+  .sidebar .navitem {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+    border: 0; background: none; font-family: inherit;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+    width: 100%;
+  }
+  .sidebar .navitem:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .sidebar .navitem[aria-current="true"] {
+    background: rgba(255,255,255,0.09);
+    color: var(--text);
+    font-weight: 500;
+  }
+  .sidebar .navitem svg { flex: none; opacity: 0.85; }
+  .sidebar .navitem .badge {
+    margin-left: auto; font-size: 11px; color: var(--text-3);
+  }
+
+  .content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 18px 22px 8px;
+  }
+
+  .content-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+  }
+  .content-head h2 { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; }
+  .content-head .sub { font-size: 12px; color: var(--text-3); }
+
+  /* 曲目行 */
+  .track {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 10px; border-radius: 9px; cursor: pointer;
+    border: 0; background: none; width: 100%; text-align: left;
+    font-family: inherit; color: inherit;
+    transition: background 0.14s;
+  }
+  .track:hover { background: rgba(255,255,255,0.05); }
+  .track[aria-current="true"] { background: rgba(255,255,255,0.075); }
+
+  .track .art {
+    width: 40px; height: 40px; border-radius: 7px; flex: none;
+    background: #26262e; object-fit: cover;
+  }
+
+  .track .meta { flex: 1; min-width: 0; }
+  .track .tname {
+    font-size: 13.5px; color: var(--text); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .track .tartist {
+    font-size: 12px; color: var(--text-3); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .track .tdur { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  .track .eq { display: none; gap: 2px; align-items: flex-end; height: 12px; }
+  .track[aria-current="true"] .eq { display: flex; }
+  .track[aria-current="true"] .tdur { display: none; }
+  .eq i {
+    width: 2.5px; background: var(--accent); border-radius: 1px;
+    animation: eqbar 0.9s ease-in-out infinite;
+  }
+  .eq i:nth-child(1) { height: 40%; animation-delay: -0.2s; }
+  .eq i:nth-child(2) { height: 90%; animation-delay: -0.5s; }
+  .eq i:nth-child(3) { height: 60%; animation-delay: -0.8s; }
+  @keyframes eqbar { 0%,100% { transform: scaleY(0.45); } 50% { transform: scaleY(1); } }
+
+  /* 正在播放视图 */
+  .np {
+    display: flex; gap: 26px; align-items: flex-start; padding: 6px 4px 0;
+  }
+  .np-art {
+    width: 220px; height: 220px; border-radius: 12px; flex: none;
+    object-fit: cover; background: #26262e;
+    box-shadow: 0 16px 40px -14px rgba(0,0,0,0.7);
+  }
+  .np-side { flex: 1; min-width: 0; }
+  .np-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); margin-bottom: 9px; }
+  .np-title { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+  .np-artist { font-size: 13.5px; color: var(--text-2); margin-top: 5px; }
+
+  /* 歌词 */
+  .lyrics {
+    margin-top: 20px;
+    height: 268px;
+    overflow: hidden;
+    position: relative;
+    mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 78%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 78%, transparent);
+  }
+
+  .lyrics-inner {
+    position: absolute;
+    left: 0; right: 0;
+    transition: transform 0.45s cubic-bezier(.25,.8,.3,1);
+    will-change: transform;
+  }
+
+  .ln {
+    padding: 7px 0;
+    font-size: 15px;
+    color: var(--text-3);
+    transition: color 0.3s, transform 0.3s, opacity 0.3s;
+    transform-origin: left center;
+    cursor: pointer;
+    line-height: 1.45;
+  }
+  .ln .en { display: block; font-size: 12.5px; opacity: 0.55; margin-top: 1px; }
+  .ln:hover { color: var(--text-2); }
+  .ln.active {
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 600;
+    transform: scale(1.0);
+  }
+  .ln.active .en { font-size: 13px; opacity: 0.62; }
+  .ln.past { opacity: 0.42; }
+
+  /* 底部播放条 */
+  .p-bottom {
+    flex: none;
+    border-top: 1px solid rgba(255,255,255,0.055);
+    padding: 10px 18px 12px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .bt-art { width: 42px; height: 42px; border-radius: 7px; flex: none; object-fit: cover; background: #26262e; }
+  .bt-meta { width: 150px; min-width: 0; flex: none; }
+  .bt-name { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bt-artist { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .bt-center { flex: 1; display: flex; align-items: center; gap: 13px; min-width: 0; }
+
+  .iconbtn {
+    appearance: none; border: 0; background: none; color: var(--text-2);
+    padding: 5px; border-radius: 7px; cursor: pointer; display: inline-flex;
+    transition: color 0.15s, background 0.15s;
+  }
+  .iconbtn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .iconbtn.on { color: var(--accent); }
+
+  .playbtn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--text); color: #0a0a0c;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 0; cursor: pointer; flex: none;
+    transition: transform 0.14s;
+  }
+  .playbtn:hover { transform: scale(1.06); }
+  .playbtn:active { transform: scale(0.96); }
+
+  .time { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
+
+  .progress {
+    flex: 1; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.13);
+    position: relative; cursor: pointer; min-width: 60px;
+  }
+  .progress:hover { background: rgba(255,255,255,0.18); }
+  .progress .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0;
+    background: var(--text); border-radius: 2px;
+  }
+  .progress .knob {
+    position: absolute; top: 50%; left: 0; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--text); transform: translate(-50%, -50%);
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .progress:hover .knob { opacity: 1; }
+
+  /* ---------- 迷你形态 ---------- */
+  .player.mini {
+    width: 420px; height: 80px; border-radius: 16px;
+  }
+  .player.mini .p-top,
+  .player.mini .sidebar,
+  .player.mini .content,
+  .player.mini .p-bottom { display: none; }
+
+  .mini-inner {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    height: 100%;
+  }
+  .player.mini .mini-inner { display: flex; }
+
+  .mini-inner .art { width: 52px; height: 52px; border-radius: 9px; object-fit: cover; flex: none; }
+  .mini-inner .meta { flex: 1; min-width: 0; }
+  .mini-inner .name { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-inner .artist { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-inner .controls { display: flex; align-items: center; gap: 4px; flex: none; }
+  .mini-inner .mini-progress {
+    position: absolute; left: 14px; right: 14px; bottom: 8px; height: 2px;
+    background: rgba(255,255,255,0.12); border-radius: 1px;
+  }
+  .mini-inner .mini-progress .fill { height: 100%; background: rgba(255,255,255,0.5); border-radius: 1px; width: 0; }
+
+  /* ---------- 胶囊形态 ---------- */
+  .player.capsule {
+    width: 392px; height: 56px; border-radius: 28px;
+    background: rgba(20,20,24,0.86);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .player.capsule .p-top,
+  .player.capsule .sidebar,
+  .player.capsule .content,
+  .player.capsule .p-bottom,
+  .player.capsule .mini-inner { display: none; }
+
+  .capsule-inner {
+    display: none;
+    align-items: center;
+    gap: 11px;
+    padding: 0 20px 6px;
+    height: 100%;
+    position: relative;
+  }
+  .player.capsule .capsule-inner { display: flex; }
+
+  .capsule-inner .bars { display: flex; gap: 2px; align-items: center; flex: none; }
+  .capsule-inner .bars i {
+    width: 2px; background: rgba(255,255,255,0.6); border-radius: 1px;
+    animation: eqbar 1s ease-in-out infinite;
+  }
+  .capsule-inner .bars i:nth-child(1) { height: 7px; }
+  .capsule-inner .bars i:nth-child(2) { height: 12px; animation-delay: -0.3s; }
+  .capsule-inner .bars i:nth-child(3) { height: 9px; animation-delay: -0.6s; }
+
+  .capsule-inner .line {
+    flex: 1; min-width: 0;
+    font-size: 15px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .capsule-inner .clabel {
+    font-size: 12px; color: var(--text-3); flex: none;
+  }
+  .capsule-inner .cprogress {
+    position: absolute; left: 20px; right: 20px; bottom: 9px; height: 2px;
+    background: rgba(255,255,255,0.1); border-radius: 1px;
+  }
+  .capsule-inner .cprogress .fill { height: 100%; background: rgba(255,255,255,0.45); border-radius: 1px; width: 0; }
+
+  /* ---------- 贴边形态 ---------- */
+  .player.edge {
+    width: 300px; height: 34px; border-radius: 17px;
+    background: rgba(16,16,19,0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .player.edge .p-top,
+  .player.edge .sidebar,
+  .player.edge .content,
+  .player.edge .p-bottom,
+  .player.edge .mini-inner,
+  .player.edge .capsule-inner { display: none; }
+
+  .edge-inner {
+    display: none;
+    align-items: center;
+    gap: 9px;
+    padding: 0 14px;
+    height: 100%;
+    position: relative;
+  }
+  .player.edge .edge-inner { display: flex; }
+  .edge-inner .dot {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: none;
+    box-shadow: 0 0 6px var(--accent);
+  }
+  .edge-inner .line {
+    flex: 1; min-width: 0; font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text-2);
+  }
+  .edge-inner .eprogress {
+    position: absolute; left: 14px; right: 14px; bottom: 4px; height: 1.5px;
+    background: rgba(255,255,255,0.09); border-radius: 1px;
+  }
+  .edge-inner .eprogress .fill { height: 100%; background: rgba(255,255,255,0.4); width: 0; }
+
+  /* ---------- 隐匿形态 ---------- */
+  .player.dormant {
+    width: 26px; height: 72px; border-radius: 13px;
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.16);
+    box-shadow: 0 10px 30px -8px rgba(0,0,0,0.7);
+  }
+  .player.dormant .p-top,
+  .player.dormant .sidebar,
+  .player.dormant .content,
+  .player.dormant .p-bottom,
+  .player.dormant .mini-inner,
+  .player.dormant .capsule-inner,
+  .player.dormant .edge-inner { display: none; }
+
+  .dormant-inner {
+    display: none;
+    width: 100%; height: 100%;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .player.dormant .dormant-inner { display: flex; }
+  .dormant-inner i {
+    width: 3px; height: 3px; border-radius: 50%;
+    background: rgba(255,255,255,0.7); display: block;
+    box-shadow: 0 -8px 0 rgba(255,255,255,0.7), 0 8px 0 rgba(255,255,255,0.7);
+  }
+
+  /* ---------- 沉浸形态 ---------- */
+  .player.immersive {
+    width: 100%; height: 560px; border-radius: 16px;
+    border-color: rgba(255,255,255,0.1);
+    background: #0b0b0e;
+  }
+  .player.immersive .p-top,
+  .player.immersive .sidebar,
+  .player.immersive .content,
+  .player.immersive .p-bottom,
+  .player.immersive .mini-inner,
+  .player.immersive .capsule-inner,
+  .player.immersive .edge-inner,
+  .player.immersive .dormant-inner { display: none; }
+
+  .immersive-inner {
+    display: none;
+    position: relative;
+    width: 100%; height: 100%;
+    overflow: hidden;
+  }
+  .player.immersive .immersive-inner { display: block; }
+
+  .immersive-inner .bg {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center;
+    transition: opacity 0.8s ease, transform 0.2s linear;
+    opacity: 0;
+  }
+  .immersive-inner .bg.on { opacity: 1; }
+
+  /* 四个场景用纯 CSS 渐变绘制：颜色取自封面，没有文字干扰 */
+  .scene-silk {
+    background:
+      radial-gradient(75% 60% at 16% 22%, rgba(238, 186, 196, 0.55), transparent 62%),
+      radial-gradient(60% 55% at 72% 26%, rgba(246, 214, 186, 0.42), transparent 60%),
+      radial-gradient(85% 70% at 58% 96%, rgba(160, 74, 92, 0.55), transparent 66%),
+      linear-gradient(140deg, #4a2630 0%, #7a4249 46%, #a8635c 100%);
+  }
+
+  .scene-rain {
+    background:
+      repeating-linear-gradient(101deg, rgba(255,255,255,0.075) 0 1px, transparent 1px 8px),
+      radial-gradient(80% 62% at 22% 14%, rgba(132, 186, 236, 0.5), transparent 62%),
+      radial-gradient(75% 65% at 76% 84%, rgba(72, 118, 172, 0.55), transparent 64%),
+      linear-gradient(160deg, #16283c 0%, #274763 52%, #35618a 100%);
+  }
+
+  .scene-ridge {
+    background:
+      radial-gradient(46% 30% at 52% 74%, rgba(255, 226, 168, 0.55), transparent 66%),
+      radial-gradient(80% 50% at 20% 96%, rgba(96, 52, 36, 0.6), transparent 66%),
+      linear-gradient(0deg, #38211a 0%, #5e3324 22%, #95553a 44%, #c47b4f 64%, #e5ac74 82%, #f6d4a2 100%);
+  }
+
+  .scene-light {
+    background:
+      conic-gradient(from 200deg at 68% 30%, rgba(255, 232, 180, 0.6), transparent 30%, rgba(255,255,255,0.24) 56%, transparent 74%),
+      radial-gradient(72% 62% at 26% 82%, rgba(176, 148, 112, 0.45), transparent 64%),
+      linear-gradient(145deg, #2a2620 0%, #4a4034 48%, #6b5c48 100%);
+  }
+
+  .immersive-inner .veil {
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 55%, rgba(0,0,0,0.1) 100%);
+  }
+
+  .immersive-inner .im-lyrics {
+    position: absolute;
+    left: 6%; top: 50%;
+    transform: translateY(-50%);
+    width: 62%;
+    max-width: 640px;
+  }
+
+  .im-line {
+    padding: 6px 0;
+    color: rgba(255,255,255,0.38);
+    font-size: 15px;
+    transition: color 0.35s, font-size 0.35s;
+    line-height: 1.45;
+  }
+  .im-line .en { display: block; font-size: 12.5px; opacity: 0.6; margin-top: 1px; }
+  .im-line.active {
+    color: #fff;
+    font-size: 27px;
+    font-weight: 640;
+    letter-spacing: -0.01em;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.45);
+  }
+  .im-line.active .en { font-size: 14px; opacity: 0.7; }
+
+  .immersive-inner .im-bar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 16px 26px;
+    display: flex; align-items: center; gap: 14px;
+    background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
+  }
+  .immersive-inner .im-bar .im-name {
+    font-size: 13px; color: rgba(255,255,255,0.9); flex: none;
+  }
+  .immersive-inner .im-bar .im-time {
+    font-size: 11.5px; color: rgba(255,255,255,0.6);
+    font-variant-numeric: tabular-nums; flex: none;
+  }
+  .immersive-inner .im-progress {
+    flex: 1; height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,0.22);
+    position: relative; cursor: pointer;
+  }
+  .immersive-inner .im-progress .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0;
+    background: rgba(255,255,255,0.92); border-radius: 2px;
+  }
+  .immersive-inner .im-exit {
+    flex: none;
+    background: rgba(255,255,255,0.16); border: 0; color: #fff;
+    font: inherit; font-size: 12px; padding: 6px 13px; border-radius: 7px;
+    cursor: pointer; backdrop-filter: blur(8px);
+  }
+  .immersive-inner .im-exit:hover { background: rgba(255,255,255,0.26); }
+
+  /* ---------- 设置面板 ---------- */
+  .sheet-backdrop {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .sheet-backdrop.open { display: flex; }
+
+  .sheet {
+    width: 100%;
+    max-width: 640px;
+    max-height: 80vh;
+    background: #141418;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 40px 100px -20px rgba(0,0,0,0.9);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sheet-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    flex: none;
+  }
+  .sheet-head h3 { font-size: 15px; font-weight: 600; flex: 1; }
+  .sheet-head button {
+    appearance: none; border: 0; background: rgba(255,255,255,0.07);
+    color: var(--text-2); font: inherit; font-size: 12.5px;
+    padding: 6px 13px; border-radius: 7px; cursor: pointer;
+  }
+  .sheet-head button:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+
+  .sheet-body { overflow-y: auto; padding: 6px 18px 20px; }
+
+  .setgroup { margin-top: 16px; }
+  .setgroup h4 {
+    font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 8px;
+  }
+
+  .setrow {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.045);
+  }
+  .setrow:last-child { border-bottom: 0; }
+  .setrow .label { flex: 1; }
+  .setrow .label .t { font-size: 13.5px; }
+  .setrow .label .d { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+
+  .switch {
+    width: 38px; height: 22px; border-radius: 11px;
+    background: rgba(255,255,255,0.14);
+    position: relative; cursor: pointer; flex: none;
+    border: 0; padding: 0;
+    transition: background 0.2s;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; transition: transform 0.2s;
+  }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+
+  .seg {
+    display: inline-flex; padding: 2px; gap: 2px;
+    background: rgba(255,255,255,0.07); border-radius: 8px; flex: none;
+  }
+  .seg button {
+    appearance: none; border: 0; background: none; color: var(--text-3);
+    font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .seg button[aria-selected="true"] { background: rgba(255,255,255,0.13); color: var(--text); }
+
+  .btn-soft {
+    appearance: none; border: 0;
+    background: rgba(255,255,255,0.08);
+    color: var(--text-2);
+    font: inherit; font-size: 12px;
+    padding: 6px 14px; border-radius: 7px;
+    cursor: pointer; flex: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn-soft:hover { background: rgba(255,255,255,0.14); color: var(--text); }
+
+  /* ---------- 提示与说明 ---------- */
+  .caption-bar {
+    display: flex; align-items: center; gap: 14px;
+    flex-wrap: wrap; justify-content: center;
+    font-size: 12.5px; color: var(--text-3);
+    max-width: 760px; text-align: center;
+  }
+  .caption-bar kbd {
+    font-family: inherit; font-size: 11px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 6px; color: var(--text-2);
+  }
+
+  .stage-note {
+    font-size: 12px;
+    color: var(--text-3);
+    text-align: center;
+    max-width: 700px;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 1080px) {
+    .player { width: 100%; }
+    .player.mini, .player.capsule, .player.edge, .player.dormant { width: auto; }
+    .player.mini { width: 100%; max-width: 420px; }
+    .player.capsule { width: 100%; max-width: 392px; }
+    .player.edge { width: 100%; max-width: 300px; }
+    .player.dormant { width: 26px; }
+    .sidebar { display: none; }
+    .np { flex-direction: column; gap: 16px; }
+    .np-art { width: 150px; height: 150px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .player, .lyrics-inner, .ln, .im-line, .immersive-inner .bg { transition: none !important; }
+    .eq i, .capsule-inner .bars i { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="desktop"></div>
+
+<div class="stage">
+  <div class="topbar">
+    <a class="brand" href="./index.html">
+      <img src="assets/icon.png" alt="">
+      FLOW
+    </a>
+    <span class="hint">可交互演示 · 真实播放</span>
+    <div class="spacer"></div>
+    <div class="navlinks">
+      <a href="./index.html">介绍</a>
+      <a href="https://github.com/mekos2772/FLOW">GitHub</a>
+    </div>
+    <a class="dl" href="https://github.com/mekos2772/FLOW/releases/latest">下载</a>
+  </div>
+
+  <div class="arena">
+    <div class="modebar" role="tablist" aria-label="形态">
+      <button role="tab" data-mode="expanded" aria-selected="true">完整</button>
+      <button role="tab" data-mode="mini" aria-selected="false">迷你</button>
+      <button role="tab" data-mode="capsule" aria-selected="false">胶囊</button>
+      <button role="tab" data-mode="edge" aria-selected="false">贴边</button>
+      <button role="tab" data-mode="dormant" aria-selected="false">隐匿</button>
+      <button role="tab" data-mode="immersive" aria-selected="false">沉浸</button>
+    </div>
+
+    <div class="desk">
+      <div class="player expanded" id="player">
+        <!-- 顶部 -->
+        <div class="p-top">
+          <div class="traffic"><i></i><i></i><i></i></div>
+          <div class="p-logo">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M3 12h3l2-5 3 10 2-5h8"/>
+            </svg>
+          </div>
+          <label class="search">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+            </svg>
+            <input id="searchInput" type="search" placeholder="搜索歌名或歌手" aria-label="搜索">
+          </label>
+          <div class="modebtns" role="tablist" aria-label="显示方式">
+            <button data-mode="expanded" aria-selected="true">普通</button>
+            <button data-mode="capsule" aria-selected="false">悬浮</button>
+            <button data-mode="immersive" aria-selected="false">沉浸</button>
+          </div>
+          <button class="iconbtn" id="openSettings" aria-label="设置" title="设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>
+              <circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- 主体 -->
+        <div class="p-body">
+          <nav class="sidebar" id="sidebar">
+            <button class="navitem" data-view="now" aria-current="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+                <path d="M4 13v-2M8 16V8M12 19V5M16 16V8M20 13v-2"/>
+              </svg>
+              正在播放
+            </button>
+            <button class="navitem" data-view="home">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+                <path d="M4 11l8-7 8 7v9a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"/>
+              </svg>
+              首页
+            </button>
+            <button class="navitem" data-view="favorites">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+                <path d="M12 4l2.4 5.1 5.6.7-4.1 3.9 1.1 5.6L12 16.6 6.9 19.3 8 13.7 3.9 9.8l5.6-.7z"/>
+              </svg>
+              收藏
+              <span class="badge" id="favCount">0</span>
+            </button>
+            <button class="navitem" data-view="recent">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>
+              </svg>
+              最近播放
+            </button>
+            <button class="navitem" data-view="playlists">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 7h11M4 12h11M4 17h7"/><circle cx="18" cy="16" r="2.5"/><path d="M20.5 16V9l-2 .6"/>
+              </svg>
+              歌单
+            </button>
+          </nav>
+
+          <div class="content" id="content"></div>
+        </div>
+
+        <!-- 底部播放条 -->
+        <div class="p-bottom">
+          <img class="bt-art" id="btArt" alt="">
+          <div class="bt-meta">
+            <div class="bt-name" id="btName">—</div>
+            <div class="bt-artist" id="btArtist">—</div>
+          </div>
+
+          <div class="bt-center">
+            <button class="iconbtn" id="btnFav" aria-label="收藏">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+                <path d="M12 4l2.4 5.1 5.6.7-4.1 3.9 1.1 5.6L12 16.6 6.9 19.3 8 13.7 3.9 9.8l5.6-.7z"/>
+              </svg>
+            </button>
+            <button class="iconbtn" id="btnPrev" aria-label="上一首">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM19 6v12l-9-6z"/></svg>
+            </button>
+            <button class="playbtn" id="btnPlay" aria-label="播放">
+              <svg id="playIcon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="iconbtn" id="btnNext" aria-label="下一首">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 6l9 6-9 6z"/></svg>
+            </button>
+            <button class="iconbtn" id="btnShuffle" aria-label="随机" title="随机播放">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 7h3l10 10h3M4 17h3L17 7h3"/><path d="M17 4l3 3-3 3M17 14l3 3-3 3"/>
+              </svg>
+            </button>
+            <span class="time" id="tCur">0:00</span>
+            <div class="progress" id="progress" role="slider" aria-label="进度" tabindex="0">
+              <div class="fill" id="progressFill"></div>
+              <div class="knob" id="progressKnob"></div>
+            </div>
+            <span class="time" id="tDur">0:00</span>
+          </div>
+        </div>
+
+        <!-- 迷你 -->
+        <div class="mini-inner">
+          <img class="art" id="miniArt" alt="">
+          <div class="meta">
+            <div class="name" id="miniName">—</div>
+            <div class="artist" id="miniArtist">—</div>
+          </div>
+          <div class="controls">
+            <button class="iconbtn" data-act="prev" aria-label="上一首">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM19 6v12l-9-6z"/></svg>
+            </button>
+            <button class="playbtn" data-act="play" aria-label="播放" style="width:30px;height:30px">
+              <svg class="mini-play-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="iconbtn" data-act="next" aria-label="下一首">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 6l9 6-9 6z"/></svg>
+            </button>
+          </div>
+          <div class="mini-progress"><div class="fill" id="miniFill"></div></div>
+        </div>
+
+        <!-- 胶囊 -->
+        <div class="capsule-inner">
+          <div class="bars"><i></i><i></i><i></i></div>
+          <div class="line" id="capsuleLine">—</div>
+          <div class="clabel" id="capsuleLabel"></div>
+          <div class="cprogress"><div class="fill" id="capsuleFill"></div></div>
+        </div>
+
+        <!-- 贴边 -->
+        <div class="edge-inner">
+          <span class="dot"></span>
+          <div class="line" id="edgeLine">—</div>
+          <div class="eprogress"><div class="fill" id="edgeFill"></div></div>
+        </div>
+
+        <!-- 隐匿 -->
+        <div class="dormant-inner" id="dormantHandle" title="点击展开">
+          <i></i>
+        </div>
+
+        <!-- 沉浸 -->
+        <div class="immersive-inner" id="immersiveInner">
+          <div class="bg scene-silk on" id="imBg1"></div>
+          <div class="bg" id="imBg2"></div>
+          <div class="veil"></div>
+          <div class="im-lyrics" id="imLyrics"></div>
+          <div class="im-bar">
+            <span class="im-name" id="imName">—</span>
+            <span class="im-time" id="imCur">0:00</span>
+            <div class="im-progress" id="imProgress"><div class="fill" id="imFill"></div></div>
+            <span class="im-time" id="imDur">0:00</span>
+            <button class="im-exit" id="imExit">退出沉浸</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption-bar">
+      点曲目播放 · 点歌词跳转 ·
+      <span><kbd>空格</kbd> 播放/暂停</span>
+      <span><kbd>⌘</kbd><kbd>→</kbd> 下一首</span>
+      <span><kbd>Esc</kbd> 退出沉浸</span>
+    </p>
+
+    <p class="stage-note">
+      演示用 7 首虚构曲目，音频与歌词均为本站原创素材。
+      真实应用支持本地文件夹、Navidrome / WebDAV 与第三方音源插件。
+    </p>
+  </div>
+</div>
+
+<!-- 设置面板 -->
+<div class="sheet-backdrop" id="sheetBackdrop">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="设置">
+    <div class="sheet-head">
+      <h3>设置</h3>
+      <button id="closeSettings">关闭</button>
+    </div>
+    <div class="sheet-body">
+      <div class="setgroup">
+        <h4>外观</h4>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">悬浮不透明度</div>
+            <div class="d">影响胶囊与贴边形态的底板</div>
+          </div>
+          <div class="seg" id="segOpacity">
+            <button data-v="0.7" aria-selected="false">淡</button>
+            <button data-v="1" aria-selected="true">标准</button>
+            <button data-v="1.3" aria-selected="false">实</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">双语歌词</div>
+            <div class="d">英文原文与中文译文同屏</div>
+          </div>
+          <button class="switch" id="swBilingual" role="switch" aria-checked="true" aria-label="双语歌词"></button>
+        </div>
+      </div>
+
+      <div class="setgroup">
+        <h4>形态与自动变形</h4>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">按空间自动变形</div>
+            <div class="d">关闭后空间变化不再改形态</div>
+          </div>
+          <button class="switch" id="swAutoMorph" role="switch" aria-checked="true" aria-label="按空间自动变形"></button>
+        </div>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">形态过渡速度</div>
+            <div class="d">缩放变形时长</div>
+          </div>
+          <div class="seg" id="segSpeed">
+            <button data-v="0.5" aria-selected="false">0.5×</button>
+            <button data-v="1" aria-selected="true">1×</button>
+            <button data-v="1.5" aria-selected="false">1.5×</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setgroup">
+        <h4>沉浸</h4>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">节拍联动</div>
+            <div class="d">背景随低频起伏的强度</div>
+          </div>
+          <div class="seg" id="segBeat">
+            <button data-v="0" aria-selected="false">关</button>
+            <button data-v="1" aria-selected="false">克制</button>
+            <button data-v="2" aria-selected="true">适中</button>
+            <button data-v="3" aria-selected="false">明显</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">场景</div>
+            <div class="d">颜色取自封面</div>
+          </div>
+          <div class="seg" id="segScene">
+            <button data-v="silk" aria-selected="true">流光</button>
+            <button data-v="rain" aria-selected="false">雨窗</button>
+            <button data-v="ridge" aria-selected="false">远山</button>
+            <button data-v="light" aria-selected="false">光影</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setgroup">
+        <h4>演示</h4>
+        <div class="setrow">
+          <div class="label">
+            <div class="t">重置演示</div>
+            <div class="d">清空收藏与当前进度</div>
+          </div>
+          <button class="btn-soft" id="btnReset">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<audio id="audio" preload="metadata"></audio>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 曲库 ----------
+  const LIB = [
+    { id: "01", name: "心流",     artist: "FLOW",       cover: "assets/cover-01.jpg", audio: "assets/audio/01.m4a", lrc: "xinliu" },
+    { id: "02", name: "潮汐之间", artist: "林岸",        cover: "assets/cover-02.jpg", audio: "assets/audio/02.m4a", lrc: null },
+    { id: "03", name: "晚风",     artist: "晚风计划",    cover: "assets/cover-03.jpg", audio: "assets/audio/03.m4a", lrc: null },
+    { id: "04", name: "流光",     artist: "洛川",        cover: "assets/cover-04.jpg", audio: "assets/audio/04.m4a", lrc: null },
+    { id: "05", name: "远山",     artist: "山止",        cover: "assets/cover-05.jpg", audio: "assets/audio/05.m4a", lrc: null },
+    { id: "06", name: "雨窗",     artist: "雨窗",        cover: "assets/cover-06.jpg", audio: "assets/audio/06.m4a", lrc: null },
+    { id: "07", name: "Flow",     artist: "FLOW",       cover: "assets/cover-01.jpg", audio: "assets/audio/07.m4a", lrc: "flowbi" }
+  ];
+
+  const SCENES = {
+    silk:  "scene-silk",
+    rain:  "scene-rain",
+    ridge: "scene-ridge",
+    light: "scene-light"
+  };
+
+  // ---------- 状态 ----------
+  const S = {
+    mode: "expanded",
+    view: "now",
+    index: 0,
+    playing: false,
+    favorites: new Set(),
+    recent: [],
+    query: "",
+    bilingual: true,
+    autoMorph: true,
+    speed: 1,
+    opacity: 1,
+    beat: 2,
+    scene: "silk",
+    lyrics: { xinliu: [], flowbi: [] }
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const audio = $("audio");
+  const player = $("player");
+  const content = $("content");
+
+  // ---------- 工具 ----------
+  const fmt = (s) => {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    return m + ":" + String(r).padStart(2, "0");
+  };
+
+  const cur = () => LIB[S.index];
+
+  function currentLines() {
+    const t = cur();
+    if (!t || !t.lrc) return [];
+    return S.lyrics[t.lrc] || [];
+  }
+
+  function lineIndexAt(time) {
+    const lines = currentLines();
+    if (!lines.length) return -1;
+    let lo = 0, hi = lines.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lines[mid][0] <= time + 0.02) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  // ---------- 渲染：内容区 ----------
+  function render() {
+    if (S.view === "now") renderNow();
+    else if (S.view === "favorites") renderList("收藏", LIB.filter(t => S.favorites.has(t.id)), "还没有收藏。点曲目行右侧的星标。");
+    else if (S.view === "recent") renderList("最近播放", S.recent.map(id => LIB.find(t => t.id === id)).filter(Boolean), "还没有播放记录。");
+    else renderList("首页", filteredLib(), "没有匹配的曲目。");
+    updateChrome();
+  }
+
+  function filteredLib() {
+    const q = S.query.trim().toLowerCase();
+    if (!q) return LIB;
+    return LIB.filter(t => t.name.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q));
+  }
+
+  function trackRow(t) {
+    const isCur = LIB[S.index] && LIB[S.index].id === t.id;
+    const fav = S.favorites.has(t.id);
+    const el = document.createElement("button");
+    el.className = "track";
+    el.setAttribute("aria-current", isCur ? "true" : "false");
+    el.innerHTML =
+      '<img class="art" src="' + t.cover + '" alt="">' +
+      '<div class="meta"><div class="tname"></div><div class="tartist"></div></div>' +
+      '<div class="eq"><i></i><i></i><i></i></div>' +
+      '<span class="tdur">' + (t.id === "01" ? "2:00" : t.id === "07" ? "2:00" : "") + '</span>' +
+      '<span class="favdot" style="color:' + (fav ? "var(--accent)" : "transparent") + ';font-size:14px;padding:0 4px">★</span>';
+    el.querySelector(".tname").textContent = t.name;
+    el.querySelector(".tartist").textContent = t.artist;
+    el.addEventListener("click", (e) => {
+      if (e.target.classList.contains("favdot")) { toggleFav(t.id); return; }
+      playTrack(LIB.findIndex(x => x.id === t.id));
+    });
+    return el;
+  }
+
+  function renderList(title, items, emptyText) {
+    content.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "content-head";
+    head.innerHTML = '<h2></h2><span class="sub">本地音乐 · ' + items.length + ' 首</span>';
+    head.querySelector("h2").textContent = title;
+    content.appendChild(head);
+
+    if (!items.length) {
+      const p = document.createElement("p");
+      p.style.cssText = "color:var(--text-3);font-size:13px;padding:26px 4px";
+      p.textContent = emptyText;
+      content.appendChild(p);
+      return;
+    }
+
+    const list = document.createElement("div");
+    items.forEach(t => list.appendChild(trackRow(t)));
+    content.appendChild(list);
+  }
+
+  function renderNow() {
+    const t = cur();
+    content.innerHTML = "";
+
+    const wrap = document.createElement("div");
+    wrap.className = "np";
+
+    const art = document.createElement("img");
+    art.className = "np-art";
+    art.src = t.cover;
+    art.alt = t.name;
+
+    const side = document.createElement("div");
+    side.className = "np-side";
+    side.innerHTML =
+      '<div class="np-label">正在播放</div>' +
+      '<div class="np-title"></div>' +
+      '<div class="np-artist"></div>' +
+      '<div class="lyrics"><div class="lyrics-inner" id="lyricsInner"></div></div>';
+    side.querySelector(".np-title").textContent = t.name;
+    side.querySelector(".np-artist").textContent = t.artist;
+
+    wrap.appendChild(art);
+    wrap.appendChild(side);
+    content.appendChild(wrap);
+
+    renderLyrics();
+  }
+
+  function renderLyrics() {
+    const box = $("lyricsInner");
+    if (!box) return;
+    box.innerHTML = "";
+    const lines = currentLines();
+
+    if (!lines.length) {
+      const p = document.createElement("div");
+      p.style.cssText = "color:var(--text-3);font-size:13.5px;padding:24px 0;line-height:1.7";
+      p.innerHTML = "这首歌没有歌词。<br><span style='font-size:12.5px'>可以手动搜词并绑定，绑定会按曲目记住。</span>";
+      box.appendChild(p);
+      return;
+    }
+
+    lines.forEach((ln, i) => {
+      const el = document.createElement("div");
+      el.className = "ln";
+      el.dataset.i = i;
+      const main = document.createElement("span");
+      main.textContent = S.bilingual ? (ln[1] || "") : (ln[2] || ln[1] || "");
+      el.appendChild(main);
+      if (S.bilingual && ln[2]) {
+        const en = document.createElement("span");
+        en.className = "en";
+        en.textContent = ln[2];
+        el.appendChild(en);
+      }
+      el.addEventListener("click", () => {
+        if (audio.readyState >= 1) audio.currentTime = ln[0];
+        else audio.currentTime = ln[0];
+      });
+      box.appendChild(el);
+    });
+    syncLyrics(true);
+  }
+
+  // ---------- 歌词同步 ----------
+  let lastActive = -2;
+
+  function syncLyrics(force) {
+    const lines = currentLines();
+    const idx = lineIndexAt(audio.currentTime || 0);
+    if (!force && idx === lastActive) return;
+    lastActive = idx;
+
+    const box = $("lyricsInner");
+    if (box && lines.length) {
+      const nodes = box.children;
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        n.classList.toggle("active", i === idx);
+        n.classList.toggle("past", i < idx);
+      }
+      if (idx >= 0 && nodes[idx]) {
+        const node = nodes[idx];
+        const target = node.offsetTop - box.parentElement.clientHeight / 2 + node.offsetHeight / 2;
+        box.style.transform = "translateY(" + (-Math.max(0, target)) + "px)";
+      }
+    }
+
+    // 胶囊 / 贴边 / 沉浸 的一行歌词
+    const lineText = idx >= 0 && lines[idx]
+      ? (S.bilingual ? (lines[idx][1] || lines[idx][2]) : (lines[idx][2] || lines[idx][1]))
+      : (S.playing ? "♪" : "已暂停");
+    const capsuleLine = $("capsuleLine");
+    if (capsuleLine) capsuleLine.textContent = lineText || "—";
+    const edgeLine = $("edgeLine");
+    if (edgeLine) edgeLine.textContent = lineText || "—";
+
+    syncImmersive();
+  }
+
+  // ---------- 沉浸 ----------
+  let imBuilt = false;
+
+  function syncImmersive() {
+    if (S.mode !== "immersive") return;
+    const box = $("imLyrics");
+    const lines = currentLines();
+    const idx = lineIndexAt(audio.currentTime || 0);
+
+    if (!imBuilt || box.dataset.track !== cur().id) {
+      box.innerHTML = "";
+      box.dataset.track = cur().id;
+      if (!lines.length) {
+        box.innerHTML = '<div class="im-line active">♪</div>';
+      } else {
+        lines.forEach((ln) => {
+          const el = document.createElement("div");
+          el.className = "im-line";
+          el.textContent = S.bilingual ? (ln[1] || "") : (ln[2] || ln[1] || "");
+          if (S.bilingual && ln[2]) {
+            const en = document.createElement("span");
+            en.className = "en";
+            en.textContent = ln[2];
+            el.appendChild(en);
+          }
+          box.appendChild(el);
+        });
+      }
+      imBuilt = true;
+    }
+
+    const nodes = box.children;
+    for (let i = 0; i < nodes.length; i++) {
+      nodes[i].classList.toggle("active", i === idx);
+    }
+
+    // 只显示焦点附近四行
+    const start = Math.max(0, idx - 1);
+    const end = Math.min(nodes.length, idx + 3);
+    for (let i = 0; i < nodes.length; i++) {
+      nodes[i].style.display = (i >= start && i < end) ? "" : "none";
+    }
+  }
+
+  function applyScene() {
+    const cls = SCENES[S.scene] || SCENES.silk;
+    const a = $("imBg1"), b = $("imBg2");
+    if (!a) return;
+    const front = a.classList.contains("on") ? a : b;
+    const back = front === a ? b : a;
+    if (front.classList.contains(cls) && front.classList.contains("on")) return;
+    back.className = "bg " + cls;
+    back.classList.add("on");
+    front.classList.remove("on");
+  }
+
+  // ---------- 播放控制 ----------
+  function loadTrack(i, autoplay) {
+    S.index = i;
+    const t = cur();
+    audio.src = t.audio;
+    audio.load();
+    $("btArt").src = t.cover;
+    $("btName").textContent = t.name;
+    $("btArtist").textContent = t.artist;
+    const miniArt = $("miniArt");
+    if (miniArt) miniArt.src = t.cover;
+    const miniName = $("miniName");
+    if (miniName) miniName.textContent = t.name;
+    const miniArtist = $("miniArtist");
+    if (miniArtist) miniArtist.textContent = t.artist;
+    const imName = $("imName");
+    if (imName) imName.textContent = t.name;
+
+    lastActive = -2;
+    imBuilt = false;
+
+    if (!S.recent.includes(t.id)) {
+      S.recent.unshift(t.id);
+      S.recent = S.recent.slice(0, 20);
+    }
+
+    if (autoplay) play();
+    render();
+    applyScene();
+    updateFavButton();
+  }
+
+  function playTrack(i) {
+    if (i === S.index && S.playing) { pause(); return; }
+    if (i === S.index) { play(); return; }
+    loadTrack(i, true);
+  }
+
+  function play() {
+    const p = audio.play();
+    if (p && p.catch) p.catch(() => {});
+    S.playing = true;
+    updatePlayIcons();
+  }
+
+  function pause() {
+    audio.pause();
+    S.playing = false;
+    updatePlayIcons();
+  }
+
+  function toggle() {
+    if (S.playing) pause(); else play();
+  }
+
+  function next(auto) {
+    let i = S.index + 1;
+    if (i >= LIB.length) i = 0;
+    loadTrack(i, auto ? true : S.playing);
+  }
+
+  function prev() {
+    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    let i = S.index - 1;
+    if (i < 0) i = LIB.length - 1;
+    loadTrack(i, S.playing);
+  }
+
+  function updatePlayIcons() {
+    const playing = S.playing;
+    $("playIcon").innerHTML = playing
+      ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>'
+      : '<path d="M8 5v14l11-7z"/>';
+    $("btnPlay").setAttribute("aria-label", playing ? "暂停" : "播放");
+    document.querySelectorAll(".mini-play-icon").forEach(svg => {
+      svg.innerHTML = playing
+        ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>'
+        : '<path d="M8 5v14l11-7z"/>';
+    });
+  }
+
+  // ---------- 进度 ----------
+  function updateProgress() {
+    const d = audio.duration || 0;
+    const c = audio.currentTime || 0;
+    const pct = d > 0 ? (c / d) * 100 : 0;
+
+    $("progressFill").style.width = pct + "%";
+    $("progressKnob").style.left = pct + "%";
+    $("tCur").textContent = fmt(c);
+    $("tDur").textContent = fmt(d);
+
+    const miniFill = $("miniFill");
+    if (miniFill) miniFill.style.width = pct + "%";
+    const capFill = $("capsuleFill");
+    if (capFill) capFill.style.width = pct + "%";
+    const edgeFill = $("edgeFill");
+    if (edgeFill) edgeFill.style.width = pct + "%";
+    const imFill = $("imFill");
+    if (imFill) imFill.style.width = pct + "%";
+    const imCur = $("imCur");
+    if (imCur) imCur.textContent = fmt(c);
+    const imDur = $("imDur");
+    if (imDur) imDur.textContent = fmt(d);
+
+    syncLyrics(false);
+  }
+
+  function seekFromEvent(el, e) {
+    const rect = el.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const ratio = rect.width ? x / rect.width : 0;
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = ratio * audio.duration;
+      updateProgress();
+    }
+  }
+
+  // ---------- 收藏 ----------
+  function toggleFav(id) {
+    if (S.favorites.has(id)) S.favorites.delete(id);
+    else S.favorites.add(id);
+    $("favCount").textContent = S.favorites.size;
+    updateFavButton();
+    render();
+  }
+
+  function updateFavButton() {
+    const t = cur();
+    const on = t && S.favorites.has(t.id);
+    $("btnFav").classList.toggle("on", !!on);
+    const path = $("btnFav").querySelector("path");
+    path.setAttribute("fill", on ? "currentColor" : "none");
+  }
+
+  // ---------- 形态 ----------
+  function setMode(mode, silent) {
+    S.mode = mode;
+    player.className = "player " + mode;
+
+    // 过渡速度
+    const dur = (0.5 / S.speed).toFixed(3) + "s";
+    player.style.transitionDuration = dur + ", " + dur + ", 0.45s, 0.35s";
+
+    document.querySelectorAll(".modebar button").forEach(b => {
+      b.setAttribute("aria-selected", String(b.dataset.mode === mode));
+    });
+    document.querySelectorAll(".modebtns button").forEach(b => {
+      const map = { expanded: "expanded", capsule: "capsule", immersive: "immersive" };
+      b.setAttribute("aria-selected", String(map[b.dataset.mode] === mode));
+    });
+
+    if (mode === "immersive") {
+      imBuilt = false;
+      applyScene();
+      syncImmersive();
+      if (!S.playing) play();
+    }
+    if (mode === "capsule" || mode === "edge" || mode === "mini") {
+      syncLyrics(true);
+    }
+    if (!silent) {
+      // 从隐匿点回来
+    }
+  }
+
+  function applyOpacity() {
+    const v = S.opacity;
+    player.style.setProperty("--hover-opacity", v);
+    document.querySelectorAll(".player.capsule, .player.edge, .player.dormant").forEach(el => {
+      el.style.backdropFilter = "blur(" + (20 * v) + "px)";
+    });
+    const cap = player.classList.contains("capsule");
+    const edge = player.classList.contains("edge");
+    if (cap) player.style.background = "rgba(20,20,24," + (0.86 * Math.min(1, v)).toFixed(3) + ")";
+    if (edge) player.style.background = "rgba(16,16,19," + (0.78 * Math.min(1, v)).toFixed(3) + ")";
+  }
+
+  // ---------- 事件绑定 ----------
+  $("btnPlay").addEventListener("click", toggle);
+  $("btnPrev").addEventListener("click", prev);
+  $("btnNext").addEventListener("click", () => next(false));
+  $("btnFav").addEventListener("click", () => toggleFav(cur().id));
+  $("btnShuffle").addEventListener("click", (e) => {
+    e.currentTarget.classList.toggle("on");
+  });
+
+  document.querySelectorAll(".modebar button").forEach(b => {
+    b.addEventListener("click", () => setMode(b.dataset.mode));
+  });
+  document.querySelectorAll(".modebtns button").forEach(b => {
+    b.addEventListener("click", () => setMode(b.dataset.mode));
+  });
+
+  document.querySelectorAll("[data-act]").forEach(b => {
+    b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      if (a === "play") toggle();
+      if (a === "prev") prev();
+      if (a === "next") next(false);
+    });
+  });
+
+  $("dormantHandle").addEventListener("click", () => setMode("expanded"));
+  $("imExit").addEventListener("click", () => setMode("expanded"));
+
+  $("progress").addEventListener("click", (e) => seekFromEvent($("progress"), e));
+  $("imProgress").addEventListener("click", (e) => seekFromEvent($("imProgress"), e));
+
+  document.querySelectorAll(".navitem").forEach(b => {
+    b.addEventListener("click", () => {
+      S.view = b.dataset.view;
+      document.querySelectorAll(".navitem").forEach(x => {
+        x.setAttribute("aria-current", String(x === b));
+      });
+      if (S.mode !== "expanded") setMode("expanded");
+      render();
+    });
+  });
+
+  $("searchInput").addEventListener("input", (e) => {
+    S.query = e.target.value;
+    if (S.view !== "home") {
+      S.view = "home";
+      document.querySelectorAll(".navitem").forEach(x => {
+        x.setAttribute("aria-current", String(x.dataset.view === "home"));
+      });
+    }
+    render();
+  });
+
+  // 设置
+  $("openSettings").addEventListener("click", () => $("sheetBackdrop").classList.add("open"));
+  $("closeSettings").addEventListener("click", () => $("sheetBackdrop").classList.remove("open"));
+  $("sheetBackdrop").addEventListener("click", (e) => {
+    if (e.target === $("sheetBackdrop")) $("sheetBackdrop").classList.remove("open");
+  });
+
+  $("swBilingual").addEventListener("click", (e) => {
+    const on = e.currentTarget.getAttribute("aria-checked") !== "true";
+    e.currentTarget.setAttribute("aria-checked", String(on));
+    S.bilingual = on;
+    imBuilt = false;
+    if (S.view === "now") renderLyrics();
+    syncLyrics(true);
+  });
+
+  $("swAutoMorph").addEventListener("click", (e) => {
+    const on = e.currentTarget.getAttribute("aria-checked") !== "true";
+    e.currentTarget.setAttribute("aria-checked", String(on));
+    S.autoMorph = on;
+  });
+
+  $("btnReset").addEventListener("click", () => {
+    S.favorites.clear();
+    S.recent = [];
+    $("favCount").textContent = "0";
+    updateFavButton();
+    render();
+  });
+
+  function wireSeg(id, apply) {
+    const box = $(id);
+    if (!box) return;
+    box.querySelectorAll("button").forEach(b => {
+      b.addEventListener("click", () => {
+        box.querySelectorAll("button").forEach(x => x.setAttribute("aria-selected", String(x === b)));
+        apply(b.dataset.v);
+      });
+    });
+  }
+
+  wireSeg("segOpacity", v => { S.opacity = parseFloat(v); applyOpacity(); });
+  wireSeg("segSpeed", v => { S.speed = parseFloat(v); setMode(S.mode, true); });
+  wireSeg("segBeat", v => { S.beat = parseInt(v, 10); });
+  wireSeg("segScene", v => { S.scene = v; imBuilt = false; applyScene(); });
+
+  // 键盘
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") {
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    if (e.code === "Space") { e.preventDefault(); toggle(); return; }
+    if (e.key === "Escape") {
+      if ($("sheetBackdrop").classList.contains("open")) $("sheetBackdrop").classList.remove("open");
+      else if (S.mode === "immersive") setMode("expanded");
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === "ArrowRight") { e.preventDefault(); next(false); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === "ArrowLeft") { e.preventDefault(); prev(); return; }
+  });
+
+  // 音频事件
+  audio.addEventListener("timeupdate", updateProgress);
+  audio.addEventListener("loadedmetadata", updateProgress);
+  audio.addEventListener("play", () => { S.playing = true; updatePlayIcons(); });
+  audio.addEventListener("pause", () => { S.playing = false; updatePlayIcons(); });
+  audio.addEventListener("ended", () => next(true));
+
+  // 节拍联动：用低频能量让沉浸背景轻微缩放
+  let actx = null, analyser = null, dataArr = null, rafId = 0, srcNode = null;
+
+  function setupBeat() {
+    if (actx || !audio.captureStream && !audio.mozCaptureStream) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      actx = new AC();
+      srcNode = actx.createMediaElementSource(audio);
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 256;
+      srcNode.connect(analyser);
+      analyser.connect(actx.destination);
+      dataArr = new Uint8Array(analyser.frequencyBinCount);
+      tick();
+    } catch (err) {
+      actx = null;
+    }
+  }
+
+  function tick() {
+    if (!analyser) return;
+    analyser.getByteFrequencyData(dataArr);
+    let low = 0;
+    const n = Math.min(12, dataArr.length);
+    for (let i = 0; i < n; i++) low += dataArr[i];
+    low = low / n / 255;
+
+    const strength = [0, 0.012, 0.028, 0.055][S.beat] || 0;
+    const scale = 1 + low * strength;
+    const front = $("imBg1").classList.contains("on") ? $("imBg1") : $("imBg2");
+    front.style.transform = "scale(" + scale.toFixed(4) + ")";
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  audio.addEventListener("play", () => {
+    setupBeat();
+    if (actx && actx.state === "suspended") actx.resume();
+  }, { once: true });
+
+  // ---------- 启动 ----------
+  fetch("assets/lyrics.json")
+    .then(r => r.json())
+    .then(d => {
+      S.lyrics = d;
+      boot();
+    })
+    .catch(() => boot());
+
+  function boot() {
+    $("favCount").textContent = "0";
+    loadTrack(0, false);
+    setMode("expanded", true);
+    applyOpacity();
+    updatePlayIcons();
+    updateProgress();
+  }
+})();
+</script>
+</body>
+</html>

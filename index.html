@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOW — 一个会自己找位置的 macOS 音乐播放器</title>
+<meta name="description" content="FLOW 是一个会自己找位置的 macOS 音乐播放器。播放时待在桌面，失焦后缩成歌词，空间不够就贴边让开。同一份播放状态、同一条歌词时间轴。">
+<meta property="og:title" content="FLOW — 一个会自己找位置的 macOS 音乐播放器">
+<meta property="og:description" content="播放时待在桌面，失焦后缩成歌词，空间不够就贴边让开。">
+<meta property="og:image" content="assets/library.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/icon.png">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --surface: #121215;
+    --surface-2: #191920;
+    --text: #f2f2f5;
+    --text-2: #a0a0ab;
+    --text-3: #6b6b76;
+    --line: #26262e;
+    --accent: #7c8cff;
+    --radius: 16px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+                 "PingFang SC", "Hiragino Sans GB", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: rgba(10, 10, 12, 0.72);
+    border-bottom: 1px solid var(--line);
+  }
+
+  nav .wrap {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    height: 56px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .brand img { width: 22px; height: 22px; border-radius: 5px; }
+
+  nav .links {
+    display: flex;
+    gap: 22px;
+    margin-left: auto;
+    font-size: 14px;
+  }
+
+  nav a.link {
+    color: var(--text-2);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  nav a.link:hover { color: var(--text); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: transform 0.15s, background 0.2s, border-color 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--text);
+    color: #0a0a0c;
+  }
+
+  .btn-primary:hover { transform: translateY(-1px); }
+
+  .btn-ghost {
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+
+  .btn-ghost:hover { border-color: #3a3a45; }
+
+  /* ---------- hero ---------- */
+  header {
+    padding: 96px 0 64px;
+    text-align: center;
+  }
+
+  header .icon {
+    width: 84px;
+    height: 84px;
+    border-radius: 19px;
+    margin-bottom: 30px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  }
+
+  h1 {
+    font-size: clamp(38px, 6vw, 62px);
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+    font-weight: 680;
+    margin-bottom: 22px;
+  }
+
+  h1 .dim { color: var(--text-3); }
+
+  header p.lede {
+    font-size: clamp(16px, 2.1vw, 19px);
+    color: var(--text-2);
+    max-width: 620px;
+    margin: 0 auto 34px;
+  }
+
+  header .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  header .note {
+    font-size: 13px;
+    color: var(--text-3);
+  }
+
+  .hero-shot {
+    margin: 56px auto 0;
+    max-width: 980px;
+    padding: 0 24px;
+  }
+
+  .hero-shot img {
+    width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
+    display: block;
+  }
+
+  /* ---------- sections ---------- */
+  section { padding: 96px 0; }
+
+  section + section { border-top: 1px solid var(--line); }
+
+  .eyebrow {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  h2 {
+    font-size: clamp(27px, 3.6vw, 38px);
+    line-height: 1.22;
+    letter-spacing: -0.02em;
+    font-weight: 650;
+    margin-bottom: 18px;
+  }
+
+  .section-lede {
+    font-size: 17px;
+    color: var(--text-2);
+    max-width: 640px;
+    margin-bottom: 52px;
+  }
+
+  /* ---------- forms ---------- */
+  .forms {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .form-card:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
+
+  .form-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 24px;
+  }
+
+  .form-card .name {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 7px;
+  }
+
+  .form-card .size {
+    font-size: 13px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 12px;
+  }
+
+  .form-card p {
+    font-size: 14px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  /* ---------- feature grid ---------- */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+
+  .grid-2.reverse .copy { order: 2; }
+  .grid-2.reverse .shot { order: 1; }
+
+  .copy h3 {
+    font-size: 24px;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+
+  .copy p {
+    color: var(--text-2);
+    font-size: 15.5px;
+    margin-bottom: 18px;
+  }
+
+  .copy ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .copy li {
+    font-size: 14.5px;
+    color: var(--text-2);
+    padding-left: 20px;
+    position: relative;
+  }
+
+  .copy li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.65;
+  }
+
+  .shot img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    display: block;
+  }
+
+  .shot .caption {
+    font-size: 12.5px;
+    color: var(--text-3);
+    margin-top: 11px;
+    text-align: center;
+  }
+
+  /* ---------- scenes ---------- */
+  .scenes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+  }
+
+  .scene {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    aspect-ratio: 16 / 9;
+  }
+
+  .scene img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .scene span {
+    position: absolute;
+    left: 13px;
+    bottom: 11px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ---------- install steps ---------- */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+    counter-reset: step;
+  }
+
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 24px;
+    counter-increment: step;
+  }
+
+  .step::before {
+    content: counter(step);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 15px;
+  }
+
+  .step h4 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .step p {
+    font-size: 14px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  .callout {
+    margin-top: 26px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid #d9a441;
+    border-radius: 10px;
+    padding: 18px 22px;
+    font-size: 14px;
+    color: var(--text-2);
+  }
+
+  .callout strong { color: var(--text); font-weight: 600; }
+
+  /* ---------- sources table ---------- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 15px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  th {
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  td:first-child {
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  td:last-child { color: var(--text-2); }
+
+  /* ---------- limits ---------- */
+  .limits {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .limit {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+  }
+
+  .limit h4 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .limit p {
+    font-size: 14px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 56px 0 72px;
+  }
+
+  footer .wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  footer .fnote {
+    font-size: 13px;
+    color: var(--text-3);
+    max-width: 420px;
+    line-height: 1.6;
+  }
+
+  footer nav {
+    position: static;
+    background: none;
+    border: none;
+    backdrop-filter: none;
+  }
+
+  footer .flinks {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    font-size: 14px;
+  }
+
+  footer .flinks a {
+    color: var(--text-2);
+    text-decoration: none;
+  }
+
+  footer .flinks a:hover { color: var(--text); }
+
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 0.9em;
+    background: var(--surface-2);
+    padding: 2px 6px;
+    border-radius: 5px;
+    color: #c9c9d4;
+  }
+
+  @media (max-width: 760px) {
+    nav .links { display: none; }
+    header { padding: 64px 0 40px; }
+    section { padding: 64px 0; }
+    .grid-2 { grid-template-columns: 1fr; gap: 28px; }
+    .grid-2.reverse .copy, .grid-2.reverse .shot { order: initial; }
+    footer .wrap { flex-direction: column; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .btn-primary:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="assets/icon.png" alt="">
+      FLOW
+    </a>
+    <div class="links">
+      <a class="link" href="#forms">形态</a>
+      <a class="link" href="#features">功能</a>
+      <a class="link" href="./play.html">试玩</a>
+      <a class="link" href="#install">安装</a>
+      <a class="link" href="https://github.com/mekos2772/FLOW">GitHub</a>
+    </div>
+    <a class="btn btn-primary" href="./play.html">试玩</a>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap">
+    <img class="icon" src="assets/icon.png" alt="FLOW 图标">
+    <h1>一个会自己找位置的<br><span class="dim">macOS 音乐播放器</span></h1>
+    <p class="lede">
+      播放时它待在桌面上；你切到别的应用，它缩成一条歌词；
+      桌面只剩一条缝，它贴到屏幕边缘；你在全屏工作，它悄悄让开。
+    </p>
+    <div class="actions">
+      <a class="btn btn-primary" href="./play.html">
+        在浏览器里试玩
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/mekos2772/FLOW/releases/latest">下载应用</a>
+    </div>
+    <p class="note">macOS 14+ · Apple 芯片 · 免费开源 · MIT</p>
+    <p class="note" style="margin-top: 8px;">
+      也可以 <a href="https://github.com/mekos2772/FLOW" style="color: var(--text-2);">查看源码</a>
+    </p>
+  </div>
+
+  <div class="hero-shot">
+    <img src="assets/library.png" alt="FLOW 完整播放器界面">
+  </div>
+</header>
+
+<section id="forms">
+  <div class="wrap">
+    <p class="eyebrow">形态</p>
+    <h2>窗口不是两种状态，是连续的</h2>
+    <p class="section-lede">
+      大多数播放器只有一个占着屏幕的大窗口，或者一个什么也做不了的小条。
+      FLOW 会读当前桌面还剩多少空间、你正在用什么应用，然后决定自己该以什么形态存在。
+      不是让你去点「迷你模式」，也不弹一个挡住你正在做的事的窗口。
+    </p>
+
+    <div class="forms">
+      <div class="form-card">
+        <div class="name">完整</div>
+        <div class="size">1020 × 640</div>
+        <p>普通窗口，愿意为焦点负责。封面与歌词并排，逐行点亮。</p>
+      </div>
+      <div class="form-card">
+        <div class="name">迷你</div>
+        <div class="size">420 × 80</div>
+        <p>悬浮层，不抢焦点。失焦后空间足够时留下的一条。</p>
+      </div>
+      <div class="form-card">
+        <div class="name">歌词胶囊</div>
+        <div class="size">392 × 56</div>
+        <p>只剩当前一句歌词，单击展开回完整形态。</p>
+      </div>
+      <div class="form-card">
+        <div class="name">贴边</div>
+        <div class="size">300 × 34</div>
+        <p>只剩窄缝时，贴到最近的一条屏幕边缘。</p>
+      </div>
+      <div class="form-card">
+        <div class="name">隐匿</div>
+        <div class="size">26 × 26</div>
+        <p>全屏应用或空间不够时退成把手，或完全让出屏幕。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="try">
+  <div class="wrap">
+    <p class="eyebrow">试玩</p>
+    <h2>不用安装，先在浏览器里玩</h2>
+    <p class="section-lede">
+      完整交互的网页还原版：真实播放、逐行歌词、五种形态切换、沉浸场景与设置面板。
+      用的都是真实的应用逻辑，只是把窗口换成了网页。
+    </p>
+    <div class="actions" style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a class="btn btn-primary" href="./play.html">打开可交互演示 →</a>
+    </div>
+    <p class="note" style="margin-top:18px;font-size:13px;color:var(--text-3);">
+      演示曲目为 7 首虚构作品，音频与歌词均为本站原创素材。
+    </p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">功能</p>
+    <h2>该有的都有，不该有的没有</h2>
+    <p class="section-lede">
+      没有广告、没有会员、没有社区区块。不内置任何商业曲库。
+    </p>
+
+    <div class="grid-2">
+      <div class="copy">
+        <h3>歌词</h3>
+        <p>逐行与逐字高亮，中英双语同屏显示。</p>
+        <ul>
+          <li>本地 <code>.lrc</code> 侧车、内嵌标签、插件字幕</li>
+          <li>AMLL 逐字歌词库与 LRCLIB</li>
+          <li>找不到词可以手动搜词并绑定，按曲目记住</li>
+          <li>中文歌词自动转简体，日文原样保留</li>
+          <li>可调偏移，按曲目保存</li>
+        </ul>
+      </div>
+      <div class="shot">
+        <img src="assets/player.png" alt="歌词界面">
+        <div class="caption">完整形态：封面与歌词并排，当前行加粗点亮</div>
+      </div>
+    </div>
+
+    <div class="grid-2 reverse" style="margin-top: 72px;">
+      <div class="copy">
+        <h3>音源</h3>
+        <p>不内置曲库，音源由你自己配置。干净安装后是空的，需要什么配什么。</p>
+        <ul>
+          <li>本地文件夹，自动解析内嵌封面与同目录歌词</li>
+          <li>OpenSubsonic / Navidrome / WebDAV，密码存 Keychain</li>
+          <li>兼容 MusicFree / LX 的第三方插件，跑在隔离沙盒</li>
+          <li>声明式 JSON 模板，无需执行脚本</li>
+          <li>在应用里搜索 GitHub 公开仓库并导入</li>
+        </ul>
+      </div>
+      <div class="shot">
+        <img src="assets/settings.png" alt="设置界面">
+        <div class="caption">设置：每个开关都绑定真实行为，没有装饰性控件</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="immersive">
+  <div class="wrap">
+    <p class="eyebrow">沉浸</p>
+    <h2>四个场景，跟着音乐走</h2>
+    <p class="section-lede">
+      颜色取自封面，背景随音乐的能量、低频与段落起伏变化。
+      每一拍有一道看得见的波，歌词只显示焦点附近四行。
+    </p>
+
+    <div class="scenes">
+      <div class="scene"><img src="assets/scene-silk.jpg" alt="流光场景"><span>流光</span></div>
+      <div class="scene"><img src="assets/scene-rain.jpg" alt="雨窗场景"><span>雨窗</span></div>
+      <div class="scene"><img src="assets/scene-ridge.jpg" alt="远山场景"><span>远山</span></div>
+      <div class="scene"><img src="assets/scene-light.jpg" alt="光影场景"><span>光影</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">安装</p>
+    <h2>三步，两分钟</h2>
+    <p class="section-lede">需要 macOS 14 或更新版本、Apple 芯片（arm64）。</p>
+
+    <div class="steps">
+      <div class="step">
+        <h4>下载</h4>
+        <p>从 GitHub Releases 下载最新的 <code>FLOW-&lt;版本&gt;-arm64.dmg</code>。</p>
+      </div>
+      <div class="step">
+        <h4>拖进应用程序</h4>
+        <p>打开 DMG，把 FLOW 拖到「应用程序」文件夹。</p>
+      </div>
+      <div class="step">
+        <h4>右键打开</h4>
+        <p>第一次启动要右键 FLOW →「打开」→ 再点「打开」。之后正常双击即可。</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>第 3 步不是 bug。</strong>
+      这个包用 ad-hoc 签名，没有苹果开发者签名与公证，所以 Gatekeeper 会拦一次。
+      也可以在「系统设置 → 隐私与安全性」底部点「仍要打开」。
+    </div>
+  </div>
+</section>
+
+<section id="sources">
+  <div class="wrap">
+    <p class="eyebrow">音源</p>
+    <h2>没有内置曲库</h2>
+    <p class="section-lede">
+      FLOW 不收录抓取商业平台的脚本。干净安装后是空的，需要你自己配置。
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>方式</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>本地文件夹</td><td>选一个目录，自动解析内嵌封面与同目录 <code>.lrc</code></td></tr>
+        <tr><td>媒体服务器</td><td>OpenSubsonic / Navidrome / WebDAV，密码存 Keychain</td></tr>
+        <tr><td>第三方插件</td><td>兼容 CommonJS 的 <code>.js</code> 音源，跑在隔离沙盒</td></tr>
+        <tr><td>JSON 模板</td><td>声明式接口模板，无需执行脚本</td></tr>
+        <tr><td>GitHub 搜索</td><td>在应用里搜索公开仓库，自动识别可导入的音源</td></tr>
+      </tbody>
+    </table>
+
+    <p class="note" style="margin-top: 22px; font-size: 13.5px; color: var(--text-3);">
+      内置三个开放接口模板可直接用：Audius、Radio Browser、Internet Archive。
+      通过插件播放的内容版权归各自权利人所有，请只使用你有权访问的来源。
+    </p>
+  </div>
+</section>
+
+<section id="limits">
+  <div class="wrap">
+    <p class="eyebrow">已知限制</p>
+    <h2>写在这里，因为它们是真实的</h2>
+    <p class="section-lede">不是免责声明。用之前你应该知道这些。</p>
+
+    <div class="limits">
+      <div class="limit">
+        <h4>没有苹果签名与公证</h4>
+        <p>首次打开需要右键。个人维护的开源项目，不做付费的 Apple Developer Program 分发。</p>
+      </div>
+      <div class="limit">
+        <h4>第三方 JS 没有执行时限</h4>
+        <p>同步死循环可能阻塞导入。根治需要独立可终止的进程。</p>
+      </div>
+      <div class="limit">
+        <h4>音色转换需要本地执行一次</h4>
+        <p>社区只发布 <code>.pth</code> 训练权重，而它是 Python pickle，读取即执行代码，所以应用不解析。转成 <code>.voicepack</code> 只需一次。</p>
+      </div>
+      <div class="limit">
+        <h4>部分场景未真机验收</h4>
+        <p>首次安装、VoiceOver、多显示器热插拔等尚未在真机完整走查。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <a class="brand" href="#top" style="margin-bottom: 16px; display: inline-flex;">
+        <img src="assets/icon.png" alt="">
+        FLOW
+      </a>
+      <p class="fnote">
+        代码以 MIT 许可开源。不内置商业曲库，不录屏、不读键盘输入，沙盒开启。
+        「精选」里的音色卡片指向第三方公开发布的模型，使用合法性由你自行负责。
+      </p>
+    </div>
+    <nav>
+      <div class="flinks">
+        <a href="https://github.com/mekos2772/FLOW/releases/latest">下载</a>
+        <a href="https://github.com/mekos2772/FLOW">GitHub 仓库</a>
+        <a href="https://github.com/mekos2772/FLOW/blob/main/LICENSE">许可</a>
+        <a href="https://github.com/mekos2772/FLOW/blob/main/docs/KNOWN_LIMITATIONS.md">已知限制</a>
+      </div>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

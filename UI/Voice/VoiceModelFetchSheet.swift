@@ -33,6 +33,9 @@ struct VoiceModelFetchSheet: View {
     @State private var directNameInput = ""
     @State private var hasAutoSearched = false
     @State private var importingCuratedID: String?
+    /// 打开面板时自动导入下载目录里已有的音色包；只做一次，避免每次重开都重扫。
+    @State private var hasAutoImportedPacks = false
+    @State private var autoImportSummary: String?
 
     @State private var isSearching = false
     @State private var hasSearched = false
@@ -113,6 +116,7 @@ struct VoiceModelFetchSheet: View {
             // 打开即自动获取：精选卡片先显示内置清单，联网时在后台补充最新的可下载音色。
             guard !hasAutoSearched else { return }
             hasAutoSearched = true
+            autoImportPreparedPacks()
             discoverOnlineVoices()
             guard selectedTab == .huggingFace || selectedTab == .github,
                   app?.voice?.isNetworkEnabled == true else { return }
@@ -456,8 +460,10 @@ struct VoiceModelFetchSheet: View {
                     }
                 }
 
-                Text("角色音色（需要先在电脑上转换）").flowType(.homeControl)
+                Text("角色音色（社区只发布 .pth 训练权重，需转换一次）").flowType(.homeControl)
                     .padding(.top, Spacing.s)
+
+                conversionExplainer
 
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: Spacing.m)],
@@ -468,13 +474,49 @@ struct VoiceModelFetchSheet: View {
                     }
                 }
 
-                Text("转换好的音色包放在 \(CuratedVoiceCatalog.packsDirectoryDisplayPath) 时，卡片可直接导入。")
+                if let autoImportSummary {
+                    Text(verbatim: autoImportSummary)
+                        .font(.caption2)
+                        .foregroundStyle(FlowColor.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("音色包放到 \(CuratedVoiceCatalog.packsDirectoryDisplayPath) 后打开这个面板会自动导入，也可以逐张点「导入」。")
                     .font(.caption2)
                     .foregroundStyle(FlowColor.tertiaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(Spacing.m)
         }
+    }
+
+    /// 为什么这些角色要转一次、怎么转、转到哪。
+    ///
+    /// 三段各回答一个问题：为什么不能直接下（.pth 是训练格式，且是 pickle）、
+    /// 转完放在哪（面板会自动导入）、以及只转一次不会反复折腾。
+    private var conversionExplainer: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label {
+                Text("为什么这几张卡片不能直接下载？")
+                    .flowType(.caption)
+            } icon: {
+                flowIcon(systemName: "info.circle", size: 11)
+            }
+            .foregroundStyle(FlowColor.secondaryText)
+
+            Text("社区只发布 .pth 训练权重，App 不解析这种格式：它是 Python pickle，读取时会执行其中的代码。转换成 .voicepack 只做一次，之后一直可用。")
+                .font(.caption2)
+                .foregroundStyle(FlowColor.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("点卡片上的「复制转换命令」，粘贴到终端执行，转好的音色包会自动落到 \(CuratedVoiceCatalog.packsDirectoryDisplayPath)。")
+                .font(.caption2)
+                .foregroundStyle(FlowColor.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
     }
 
     private func englishName(_ file: VoiceModelRemoteFile) -> String {
@@ -670,10 +712,14 @@ struct VoiceModelFetchSheet: View {
                         importCurated(item)
                     }
                 } else {
-                    Text("尚未转换")
+                    Text("需转换")
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Spacer(minLength: 0)
+                    FlowTextButton(title: "复制转换命令", symbolName: "doc.on.doc") {
+                        copyConversionCommand(for: item)
+                        statusMessage = String(localized: "已复制「\(item.displayName)」的转换命令，在终端粘贴执行即可。")
+                    }
                     FlowTextButton(title: "打开源站", symbolName: "safari") {
                         if let url = URL(string: "https://huggingface.co/\(item.sourceRepo)") {
                             NSWorkspace.shared.open(url)
@@ -701,6 +747,64 @@ struct VoiceModelFetchSheet: View {
         default: [Color(red: 0.95, green: 0.65, blue: 0.3), Color(red: 0.95, green: 0.4, blue: 0.55)]
         }
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// 下载目录里已经放好的音色包直接导入，不必再逐张点「导入」。
+    ///
+    /// 只扫精选清单里列出的那几个文件夹：下载目录是用户的公共目录，不按白名单读会顺带
+    /// 碰用户自己的其它文件。已导入的按 `importPack` 的指纹幂等直接命中，不重复拷贝。
+    private func autoImportPreparedPacks() {
+        guard !hasAutoImportedPacks else { return }
+        hasAutoImportedPacks = true
+        guard let voice = app?.voice else { return }
+        let pending = CuratedVoiceCatalog.all.filter { item in
+            CuratedVoiceCatalog.hasLocalPack(for: item)
+                && !voice.packs.contains { $0.displayName == item.displayName }
+        }
+        guard !pending.isEmpty else { return }
+
+        Task {
+            var imported: [String] = []
+            var firstError: String?
+            for item in pending {
+                do {
+                    let manifest = try await voice.importPack(
+                        weightURL: CuratedVoiceCatalog.localPackURL(for: item),
+                        displayName: item.displayName
+                    )
+                    imported.append(manifest.displayName)
+                    onImported(manifest)
+                } catch {
+                    if firstError == nil { firstError = error.localizedDescription }
+                }
+            }
+            if !imported.isEmpty {
+                autoImportSummary = String(localized: "已自动导入：\(imported.joined(separator: "、"))")
+            }
+            if let firstError, imported.isEmpty {
+                autoImportSummary = firstError
+            }
+        }
+    }
+
+    /// 把「下载源权重 → 转成音色包」的两条命令放进剪贴板。
+    ///
+    /// `.pth` 是 pickle 文件，解析它等于执行任意代码，所以应用自身不解包；
+    /// 转换放在终端里由用户明确执行一次，转换结果再自动导入。
+    private func copyConversionCommand(for item: CuratedVoice) {
+        let repo = item.sourceRepo
+        let commands = """
+        # \(item.displayName)：先下载训练权重，再转成音色包
+        curl -L -o ~/Downloads/\(item.id).pth  "https://huggingface.co/\(repo)/resolve/main/\(item.id).pth"
+        curl -L -o ~/Downloads/\(item.id).index "https://huggingface.co/\(repo)/resolve/main/\(item.id).index"
+        python3 Tools/rvc-converter/convert_to_voicepack.py \\
+          --pth ~/Downloads/\(item.id).pth \\
+          --index ~/Downloads/\(item.id).index \\
+          --name "\(item.displayName)" \\
+          --output ~/Downloads/FLOW-VoicePacks
+        """
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(commands, forType: .string)
     }
 
     private func importCurated(_ item: CuratedVoice) {

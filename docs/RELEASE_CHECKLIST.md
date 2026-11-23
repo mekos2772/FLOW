@@ -8,13 +8,13 @@
 ## 当前发布判断（2026-11-23）
 
 **分发方式：开源（MIT），GitHub Releases 发 DMG，不上 App Store、不做付费签名。**
-工程门禁通过（最新全量单测见第一节，Release 构建 0 警告），可以按开源 Beta 发布。当前版本 **0.1.1 (2)**。
+工程门禁通过（最新全量单测见第一节，Release 构建 0 警告），可以按开源 Beta 发布。当前版本 **0.1.3 (4)**。
 
 - 安装包用 ad-hoc 签名（带沙盒权限），用户首次打开要右键「打开」——README「安装」一节已写明。ad-hoc 下不能开 Hardened Runtime（会拒载同为 ad-hoc 的 OnnxRuntime）。
 - 没有 Team ID 时 App Group `group.com.yg.spatiallyrics` 无法正式授权，桌面小组件可能读不到播放状态（应用已按"不可用"兜底，诊断里如实显示）；以后要做 Developer ID 签名再改成 `<TeamID>.group…`。
-- 公开仓库：<https://github.com/mekos2772/FLOW>（公开，main；按 `.gitignore` 从本目录导出到 `~/FLOW-public` 后推送）。最新 Release `v0.1.1` 上传 `FLOW-0.1.1-arm64.dmg`（17,880,937 字节，SHA-256 `bd06741c…aec5`）；首个版本 `v0.1.0` 仍在。开源准备（2026-11-23）：MIT `LICENSE`、[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)（ONNX Runtime 许可 + ThirdPartyNotices 已打进应用，关于页可查看）、`Tools/rvc-converter/rvc_models/NOTICE.md`；ONNX Runtime 二进制不进仓库，由 `Scripts/fetch-onnxruntime.sh` 从微软官方 PyPI 包取回并双重校验 SHA-256；B 站抓取插件、一键预设与指向抓取类音源的搜索快捷词已移出公开仓库；公开仓库从干净的首个提交开始（旧历史里的截图含个人信息）。
+- 公开仓库：<https://github.com/mekos2772/FLOW>（公开，main；按 `.gitignore` 从本目录导出到 `~/FLOW-public` 后推送）。最新 Release `v0.1.3` 上传 `FLOW-0.1.3-arm64.dmg`（18,792,698 字节，SHA-256 `b0de8de3…128b`）；`v0.1.1` 与首个 `v0.1.0` 仍在。开源准备（2026-11-23）：MIT `LICENSE`、[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)（ONNX Runtime 许可 + ThirdPartyNotices 已打进应用，关于页可查看）、`Tools/rvc-converter/rvc_models/NOTICE.md`；ONNX Runtime 二进制不进仓库，由 `Scripts/fetch-onnxruntime.sh` 从微软官方 PyPI 包取回并双重校验 SHA-256；B 站抓取插件、一键预设与指向抓取类音源的搜索快捷词已移出公开仓库；公开仓库从干净的首个提交开始（旧历史里的截图含个人信息）。
 - 2026-11-23 功能收尾：新手引导（文字 + 箭头，首次打开自动显示、可跳过、设置里可重看）；AI 版「生成并播放」在需要先生成时不再丢失自动播放；预热下一首不再覆盖当前会话追踪；有转换在跑时不清理缓存、删成品不动中间文件；导入「自动音质」备份后运行时同步回自动；小组件显示名统一为 FLOW。
-- **安装包**：`./Scripts/package-release.sh` 一键生成 `dist/FLOW-<版本>-arm64.dmg`（ad-hoc 签名 + 沙盒权限 + 两个 ONNX 许可文件，0.1.1 的 SHA-256 `bd06741c…aec5`，hdiutil verify VALID）。0.1.1 已在本机替换安装并核对可执行文件与安装包逐字节一致、曲库与设置保留，见 [`evidence/release-2026-11-23.txt`](evidence/release-2026-11-23.txt)。发布时上传到 GitHub Releases。
+- **安装包**：`./Scripts/package-release.sh` 一键生成 `dist/FLOW-<版本>-arm64.dmg`（ad-hoc 签名 + 沙盒权限 + 两个 ONNX 许可文件，0.1.3 的 SHA-256 `b0de8de3…128b`，hdiutil verify VALID）。0.1.1 已在本机替换安装并核对可执行文件与安装包逐字节一致、曲库与设置保留；0.1.2/0.1.3 为音色面板文案与自动导入，未在本机安装验收，见 [`evidence/release-2026-11-23.txt`](evidence/release-2026-11-23.txt)。发布时上传到 GitHub Releases。
 - 仍未验证：干净机器上的首次安装、FLOW Voice 全曲人工试听、沙盒包读 `~/Downloads/FLOW-VoicePacks`、三个底座模型实网整链下载；第三方 JS 同步死循环等其余审计项见 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)。
 
 > [!IMPORTANT]
@@ -30,7 +30,7 @@
 |---|---|---|
 | 编译警告 | Release 0 警告 | 本轮全量 `./Scripts/verify.sh`（2026-11-23，干净 derivedData） |
 | 强制解包 / 崩溃点 | 业务逻辑 0 处（仅 `MTKView required init(coder:)` 与兜底内存库 `preconditionFailure` 各 1 处；`ORTSession` 已改为抛出错误） | `grep "try!\|as! \|fatalError"` |
-| 单元测试 | **1335 条**、14 跳过、0 失败 | 2026-11-23 歌词错配修复版全量单测通过，新增书名号歌名优先、禁止搜索关键词漂移、离线拒用异名缓存等回归；此前音源检索修复版全量单测：补充 GitHub 查询与内容识别、下载大小门控、按内容导入、fetch、合集能力和重定向回归；真实 GitHub 候选检索专项另行通过。此前全量 `./Scripts/verify.sh`（2026-11-23 01:43 干净重跑；开源整理移走 B 站插件端到端用例 2 条，无测试进程崩溃/重启；新增新手引导几何与渲染、AI 版生成并播放意图、预热追踪、转换中拒绝清缓存等回归；此前 2026-11-22，FLOW Voice ContentVec/SineGen 杂音与原曲↔AI 切换联动、`AppContainer.voiceDriver` 持活、JS 插件元数据持久化与切原曲缓存兜底修复；AI 翻唱不再随切歌自动生成、离线页管理 AI 成品；2026-11-23 设置页审查修复、音色获取修复、精选卡片自动获取/翻译、本地化门禁扩到自定义组件及回归测试） |
+| 单元测试 | **1337 条**、15 跳过、0 失败 | 2026-11-23 音色面板修复版全量单测通过：新增精选音色源仓库只发布 `.pth`、转换命令指向真实文件与自动扫描目录等回归；此前歌词错配修复版全量单测通过，新增书名号歌名优先、禁止搜索关键词漂移、离线拒用异名缓存等回归；音源检索修复版全量单测：补充 GitHub 查询与内容识别、下载大小门控、按内容导入、fetch、合集能力和重定向回归；真实 GitHub 候选检索专项另行通过。此前全量 `./Scripts/verify.sh`（2026-11-23 01:43 干净重跑；开源整理移走 B 站插件端到端用例 2 条，无测试进程崩溃/重启；新增新手引导几何与渲染、AI 版生成并播放意图、预热追踪、转换中拒绝清缓存等回归；此前 2026-11-22，FLOW Voice ContentVec/SineGen 杂音与原曲↔AI 切换联动、`AppContainer.voiceDriver` 持活、JS 插件元数据持久化与切原曲缓存兜底修复；AI 翻唱不再随切歌自动生成、离线页管理 AI 成品；2026-11-23 设置页审查修复、音色获取修复、精选卡片自动获取/翻译、本地化门禁扩到自定义组件及回归测试） |
 | 代码覆盖率 | 见 [`evidence/coverage.txt`](evidence/coverage.txt)（唯一权威来源） | 同次全量单测 `xcrun xccov`，2026-11-23 01:43 |
 | 真实 HLS 播放与策略 | 回环 HTTP + AVPlayer 静音播放、进度推进；域名/重定向/密钥/大小/路由/联网开关回归通过 | `HLSResourceTests`（全量默认执行） |
 | 真实本地音频 play / pause | 真实播放时钟推进，暂停后时钟冻结，全程静音 | `TEST_RUNNER_SLP_AUDIO_TEST=1`，`AudioPipelineOptionalTests`，2026-11-22 17:00 |

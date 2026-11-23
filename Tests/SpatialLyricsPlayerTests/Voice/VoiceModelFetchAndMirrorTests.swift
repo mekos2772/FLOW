@@ -519,6 +519,38 @@ final class VoiceModelFetchAndMirrorTests: XCTestCase {
         }
     }
 
+    /// 三个精选角色的源仓库都只发布 `.pth` + `.index`，没有任何可运行格式。
+    ///
+    /// 这条把"到底能不能直接下载"钉成事实：搜索这几个角色时，结果里不该出现可下载音色，
+    /// 界面必须走"需转换"分支，而不是给一个点了就失败的下载按钮。
+    func testCuratedVoiceSourcesPublishNoRunnableModel() async throws {
+        try LiveTestGate.skipUnlessLive("真实 HuggingFace 仓库清单，需设置 SLP_LIVE_TEST=1")
+        let discovery = VoiceModelDiscovery()
+        for voice in CuratedVoiceCatalog.all {
+            let summary = VoiceModelRepoSummary(
+                id: "hf:\(voice.sourceRepo)", platform: .huggingFace, repoID: voice.sourceRepo,
+                title: voice.sourceRepo, summary: "", downloadsOrStars: 0, onnxFileCount: 0,
+                tags: [], pageURL: URL(string: "https://huggingface.co/\(voice.sourceRepo)")!,
+                defaultBranch: "main", isRecommended: true
+            )
+            let files = try await discovery.inspectRepository(summary, allowNetwork: { true })
+            XCTAssertTrue(files.isEmpty,
+                          "\(voice.sourceRepo) 不该有可直接下载的 .onnx / .voicepack：\(files.map(\.fileName))")
+            XCTAssertFalse(CuratedVoiceCatalog.hasLocalPack(for: voice),
+                           "测试环境不该读到用户下载目录里的音色包")
+        }
+    }
+
+    /// 转换命令必须指向真实存在的源文件，并且输出到应用会自动扫描的目录。
+    func testCuratedConversionCommandTargetsRealSourceFiles() {
+        for voice in CuratedVoiceCatalog.all {
+            XCTAssertTrue(voice.sourceRepo.contains("/"))
+            XCTAssertTrue(voice.id.allSatisfy { $0.isLetter || $0.isNumber })
+            XCTAssertEqual(CuratedVoiceCatalog.localPackURL(for: voice).lastPathComponent, voice.packFolderName)
+            XCTAssertTrue(CuratedVoiceCatalog.packsDirectoryDisplayPath.hasSuffix("Downloads/FLOW-VoicePacks"))
+        }
+    }
+
     // MARK: - 直链分类
 
     func testDirectLinkClassification() {

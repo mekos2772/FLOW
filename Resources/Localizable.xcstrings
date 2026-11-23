@@ -4,64 +4,154 @@
     "全部结果": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "All Results" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全部结果" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Results"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部结果"
+          }
+        }
       }
     },
     "查看源码": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "View Source" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "查看源码" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看源码"
+          }
+        }
       }
     },
     "需适配": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Adaptation Needed" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需适配" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adaptation Needed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需适配"
+          }
+        }
       }
     },
     "适配并导入": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Adapt & Import" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "适配并导入" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapt & Import"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适配并导入"
+          }
+        }
       }
     },
     "正在自动检查音源文件…": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Checking source files automatically…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在自动检查音源文件…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking source files automatically…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在自动检查音源文件…"
+          }
+        }
       }
     },
     "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "No supported source files found. API server code needs to be deployed and adapted into a source plugin first." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No supported source files found. API server code needs to be deployed and adapted into a source plugin first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未发现支持的音源文件。API 服务源码需要先部署并适配为音源插件。"
+          }
+        }
       }
     },
     "此文件不是支持的音源格式，需先适配。": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This file needs adaptation to a supported source format." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此文件不是支持的音源格式，需先适配。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file needs adaptation to a supported source format."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件不是支持的音源格式，需先适配。"
+          }
+        }
       }
     },
     "尚未检查，导入时会验证格式。": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Not checked yet. The format will be validated on import." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "尚未检查，导入时会验证格式。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not checked yet. The format will be validated on import."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未检查，导入时会验证格式。"
+          }
+        }
       }
     },
     "提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Get and import open API templates for Audius, Radio Browser, and Internet Archive as needed." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get and import open API templates for Audius, Radio Browser, and Internet Archive as needed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供 Audius、Radio Browser 与 Internet Archive 开放接口模板，按需获取并导入。"
+          }
+        }
       }
     },
     "第三方声明": {
@@ -17961,6 +18051,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "当前播放原曲"
+          }
+        }
+      }
+    },
+    "角色音色（社区只发布 .pth 训练权重，需转换一次）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Character voices (community releases only .pth training weights; convert once)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "角色音色（社区只发布 .pth 训练权重，需转换一次）"
+          }
+        }
+      }
+    },
+    "需转换": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs conversion"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需转换"
+          }
+        }
+      }
+    },
+    "复制转换命令": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy conversion command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制转换命令"
+          }
+        }
+      }
+    },
+    "已复制「%@」的转换命令，在终端粘贴执行即可。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied the conversion command for “%@”. Paste it in Terminal to run."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制「%@」的转换命令，在终端粘贴执行即可。"
+          }
+        }
+      }
+    },
+    "已自动导入：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically imported: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自动导入：%@"
+          }
+        }
+      }
+    },
+    "音色包放到 %@ 后打开这个面板会自动导入，也可以逐张点「导入」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put voice packs in %@ and they import automatically when this panel opens, or import them one by one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音色包放到 %@ 后打开这个面板会自动导入，也可以逐张点「导入」。"
+          }
+        }
+      }
+    },
+    "为什么这几张卡片不能直接下载？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why can't these cards be downloaded directly?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么这几张卡片不能直接下载？"
+          }
+        }
+      }
+    },
+    "社区只发布 .pth 训练权重，App 不解析这种格式：它是 Python pickle，读取时会执行其中的代码。转换成 .voicepack 只做一次，之后一直可用。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The community only publishes .pth training weights, which the app does not parse: it is a Python pickle, and reading it executes embedded code. Converting to .voicepack is a one-time step; the result stays usable."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "社区只发布 .pth 训练权重，App 不解析这种格式：它是 Python pickle，读取时会执行其中的代码。转换成 .voicepack 只做一次，之后一直可用。"
+          }
+        }
+      }
+    },
+    "点卡片上的「复制转换命令」，粘贴到终端执行，转好的音色包会自动落到 %@。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click “Copy conversion command” on a card and paste it into Terminal. The converted voice pack lands in %@ automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点卡片上的「复制转换命令」，粘贴到终端执行，转好的音色包会自动落到 %@。"
           }
         }
       }

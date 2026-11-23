@@ -14,6 +14,12 @@
 [![最新版本](https://img.shields.io/github/v/release/mekos2772/FLOW?label=%E4%B8%8B%E8%BD%BD&style=flat-square)](../../releases/latest)
 [![平台](https://img.shields.io/badge/macOS-14%2B%20arm64-black?style=flat-square)](#安装)
 [![许可](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![在线试玩](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E8%AF%95%E7%8E%A9-%E6%89%93%E5%BC%80-7c8cff?style=flat-square)](https://mekos2772.github.io/FLOW/play.html)
+
+<br>
+
+**[在浏览器里试玩 →](https://mekos2772.github.io/FLOW/play.html)**
+真实播放、逐行歌词、五种形态切换与沉浸场景，不用安装。
 
 <br>
 

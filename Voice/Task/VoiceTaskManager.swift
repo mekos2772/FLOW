@@ -224,8 +224,9 @@ final class VoiceTaskManager {
             throw VoiceError.io("原曲音频尚未完整缓存或无法解码：\(inputURL.lastPathComponent)")
         }
 
-        let sepMode = job.parameters["separation_model"]?.stringValue ?? "mdx-vocals"
+        let sepMode = job.parameters["separation_model"]?.stringValue ?? "mdx-lead-vocals"
         let useMDX = sepMode != "none"
+        let useKaraoke = sepMode == "mdx-lead-vocals"
 
         // 若缺少或检测到不兼容旧版编码器（如原版 hubert-base-ls960），在允许联网时自动拉取 ContentVec 并校验；
         // 离线时给出明确的兼容提示，绝不放行错模型生成杂音。
@@ -254,8 +255,16 @@ final class VoiceTaskManager {
             try Task.checkCancellation()
             try await autoDownload(.mdxSeparator, label: String(localized: "正在下载人声分离模型"), stage: .separate, at: 0.09)
         }
+        if useKaraoke, !assets.assetIsReady(.mdxKaraoke) {
+            try Task.checkCancellation()
+            try await autoDownload(.mdxKaraoke, label: String(localized: "正在下载主唱去和声模型"), stage: .separate, at: 0.11)
+        }
 
-        let missing = assets.missingRequiredAssets(requiresF0: job.hasF0, requiresSeparation: useMDX)
+        let missing = assets.missingRequiredAssets(
+            requiresF0: job.hasF0,
+            requiresSeparation: useMDX,
+            requiresKaraoke: useKaraoke
+        )
         if !missing.isEmpty {
             throw VoiceError.missingBaseAssets(missing.map(\.fileName))
         }
@@ -263,6 +272,7 @@ final class VoiceTaskManager {
         let rmvpeURL = assets.url(for: .rmvpe)
         let hubertURL = assets.url(for: .hubert)
         let mdxURL = assets.url(for: .mdxSeparator)
+        let karaokeURL = assets.url(for: .mdxKaraoke)
 
         // 阶段 1：一级缓存（人声/伴奏分离）
         var vocalsURL = inputURL
@@ -292,20 +302,78 @@ final class VoiceTaskManager {
 
                 let (overlap, enableDenoise): (Double, Bool) = switch job.qualityMode {
                 case "fast": (0.15, false)
-                case "best": (0.35, true)
-                default: (0.25, false)
+                case "best": (0.50, true)
+                default: (0.25, true)
                 }
 
-                _ = try await separator.separate(
-                    inputURL: inputURL,
-                    vocalsOutputURL: stagingVocals,
-                    instrumentalOutputURL: stagingInst,
-                    modelURL: mdxURL,
-                    provider: provider,
-                    overlap: overlap,
-                    enableDenoise: enableDenoise
-                ) { frac in
-                    progress(.separate, 0.05 + 0.27 * frac, "正在分离人声与伴奏")
+                if useKaraoke {
+                    let stage1Vocals = targetVocals.deletingLastPathComponent()
+                        .appendingPathComponent(".\(UUID().uuidString).stage1.vocals.wav")
+                    let stage1Inst = targetInst.deletingLastPathComponent()
+                        .appendingPathComponent(".\(UUID().uuidString).stage1.inst.wav")
+                    let stage2Backing = targetInst.deletingLastPathComponent()
+                        .appendingPathComponent(".\(UUID().uuidString).stage2.backing.wav")
+                    defer {
+                        try? FileManager.default.removeItem(at: stage1Vocals)
+                        try? FileManager.default.removeItem(at: stage1Inst)
+                        try? FileManager.default.removeItem(at: stage2Backing)
+                    }
+
+                    // 阶段 1a：Voc_FT 分出全部人声与纯伴奏
+                    _ = try await separator.separate(
+                        inputURL: inputURL,
+                        vocalsOutputURL: stage1Vocals,
+                        instrumentalOutputURL: stage1Inst,
+                        modelURL: mdxURL,
+                        provider: provider,
+                        overlap: overlap,
+                        enableDenoise: enableDenoise
+                    ) { frac in
+                        progress(.separate, 0.05 + 0.14 * frac, "正在分离人声与伴奏")
+                    }
+
+                    try Task.checkCancellation()
+                    // 阶段 1b：KARA_2 从人声中剥离和声/副唱，仅保留干净单人主唱送进 RVC
+                    _ = try await separator.separate(
+                        inputURL: stage1Vocals,
+                        vocalsOutputURL: stagingVocals,
+                        instrumentalOutputURL: stage2Backing,
+                        modelURL: karaokeURL,
+                        provider: provider,
+                        overlap: overlap,
+                        enableDenoise: enableDenoise
+                    ) { frac in
+                        progress(.separate, 0.19 + 0.12 * frac, "正在剥离和声提取主唱")
+                    }
+
+                    try Task.checkCancellation()
+                    // 将剥离出的和声/副唱加回伴奏轨，避免丢失合唱氛围与副声部
+                    let instStereo = try VoiceAudioDSP.decodeStereo(url: stage1Inst, targetSampleRate: 44_100)
+                    let backingStereo = try VoiceAudioDSP.decodeStereo(url: stage2Backing, targetSampleRate: 44_100)
+                    let combinedInst = VoiceAudioDSP.mixStereoTracks(
+                        firstLeft: instStereo.left,
+                        firstRight: instStereo.right,
+                        secondLeft: backingStereo.left,
+                        secondRight: backingStereo.right
+                    )
+                    try VoiceAudioDSP.writeWAV(
+                        left: combinedInst.left,
+                        right: combinedInst.right,
+                        sampleRate: 44_100,
+                        to: stagingInst
+                    )
+                } else {
+                    _ = try await separator.separate(
+                        inputURL: inputURL,
+                        vocalsOutputURL: stagingVocals,
+                        instrumentalOutputURL: stagingInst,
+                        modelURL: mdxURL,
+                        provider: provider,
+                        overlap: overlap,
+                        enableDenoise: enableDenoise
+                    ) { frac in
+                        progress(.separate, 0.05 + 0.27 * frac, "正在分离人声与伴奏")
+                    }
                 }
 
                 try Task.checkCancellation()
@@ -336,7 +404,8 @@ final class VoiceTaskManager {
                 indexRate: Float(job.parameters["index_rate"]?.doubleValue ?? 0.75),
                 filterRadius: job.parameters["filter_radius"]?.intValue ?? 3,
                 rmsMixRate: Float(job.parameters["rms_mix_rate"]?.doubleValue ?? 0.25),
-                protect: Float(job.parameters["protect"]?.doubleValue ?? 0.33)
+                protect: Float(job.parameters["protect"]?.doubleValue ?? 0.33),
+                duetPitchAdapt: job.parameters["duet_pitch_adapt"]?.boolValue ?? true
             )
             let result = try await converter.convertVocals(
                 vocalsURL: vocalsURL,

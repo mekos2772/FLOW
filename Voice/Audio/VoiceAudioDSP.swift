@@ -416,6 +416,23 @@ enum VoiceAudioDSP {
         return (outL, outR)
     }
 
+    /// 合并两条立体声轨（例如将 Karaoke 模型剥离出的和声/伴唱加回纯伴奏），峰值超过 0.99 时等比缩放防削波。
+    static func mixStereoTracks(
+        firstLeft: [Float],
+        firstRight: [Float],
+        secondLeft: [Float],
+        secondRight: [Float]
+    ) -> (left: [Float], right: [Float]) {
+        mixVocalAndInstrumental(
+            vocalLeft: secondLeft,
+            vocalRight: secondRight,
+            instLeft: firstLeft,
+            instRight: firstRight,
+            vocalGain: 1.0,
+            instGain: 1.0
+        )
+    }
+
     // MARK: - 高通滤波与 RMS 包络匹配
 
     /// 5 阶 48Hz Butterworth 高通零相位滤波 (`scipy.signal.sosfiltfilt` 等价实现)。

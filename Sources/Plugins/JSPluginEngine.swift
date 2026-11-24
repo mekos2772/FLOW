@@ -382,6 +382,8 @@ final class JSPluginRuntime: @unchecked Sendable {
         var request = URLRequest(url: finalURL)
         request.httpMethod = spec.method
         request.timeoutInterval = spec.timeout
+        // 插件自行通过 Cookie 请求头管理登录态，避免共享 URLSession Cookie 罐在退出登录后继续携带旧凭据。
+        request.httpShouldHandleCookies = false
         for (k, v) in spec.headers {
             request.setValue(v, forHTTPHeaderField: k)
         }
@@ -704,6 +706,7 @@ final class JSPluginSource:
     private let lock = NSLock()
     private var preferredQuality: AudioQualityTier = .auto
     private var lastActualQuality: String?
+    private var onActualQualityChanged: (@Sendable (String?) -> Void)?
     private var rawItemCache: [TrackIdentity: [String: Any]] = [:]
     private var queryPrefixCache: [String: Bool] = [:]
 
@@ -742,7 +745,9 @@ final class JSPluginSource:
             supportsDiscover: manifest.capabilities.hasDiscover || manifest.capabilities.hasTopLists || manifest.capabilities.hasRecommendSheets,
             supportsAccount: manifest.capabilities.hasAuth,
             supportsRelatedRadio: manifest.capabilities.hasGetRelated,
-            supportsQualitySelection: !manifest.capabilities.supportedQualities.isEmpty || manifest.capabilities.isLXScript,
+            supportsQualitySelection: !manifest.capabilities.supportedQualities.isEmpty
+                || manifest.capabilities.isLXScript
+                || manifest.capabilities.hasGetMediaSource,
             allowedDomains: manifest.allowedDomains
         )
     }
@@ -750,6 +755,9 @@ final class JSPluginSource:
     var currentQuality: AudioQualityTier { lock.withLock { preferredQuality } }
     var actualQualityDescription: String? { lock.withLock { lastActualQuality } }
     func updateQuality(_ tier: AudioQualityTier) { lock.withLock { preferredQuality = tier } }
+    func setOnActualQualityChanged(_ handler: (@Sendable (String?) -> Void)?) {
+        lock.withLock { onActualQualityChanged = handler }
+    }
 
     func cacheRawItems(from tracks: [(Track, [String: Any])]) {
         lock.withLock {
@@ -880,6 +888,19 @@ final class JSPluginSource:
     var supportsGaplessPrewarm: Bool { true }
 
     func makeSession(for track: Track) async throws -> any PlaybackSession {
+        try await makeSession(for: track, reportActualQuality: true)
+    }
+
+    func makePrewarmSession(for track: Track) async throws -> any PlaybackSession {
+        try await makeSession(for: track, reportActualQuality: false)
+    }
+
+    func noteSessionPromoted(_ session: any PlaybackSession) {
+        guard let httpSession = session as? HTTPStreamPlayerSession else { return }
+        reportActualQuality(for: httpSession.stream)
+    }
+
+    private func makeSession(for track: Track, reportActualQuality: Bool) async throws -> any PlaybackSession {
         let quality = lock.withLock { preferredQuality }
         let descriptor = try await makeStreamDescriptor(for: track, quality: quality)
         let session = try await RemoteStreamSessionFactory.makeSession(
@@ -891,11 +912,20 @@ final class JSPluginSource:
             session: self.session,
             networkAllowed: networkAllowed
         )
-        lock.withLock {
-            let desc = descriptor.describe
-            lastActualQuality = desc.isEmpty ? descriptor.qualityTier.displayName : desc
+        if reportActualQuality {
+            self.reportActualQuality(for: descriptor)
         }
         return session
+    }
+
+    private func reportActualQuality(for descriptor: AudioStreamDescriptor) {
+        let (actualText, callback): (String, (@Sendable (String?) -> Void)?) = lock.withLock {
+            let desc = descriptor.describe
+            let resolved = desc.isEmpty ? descriptor.qualityTier.displayName : desc
+            lastActualQuality = resolved
+            return (resolved, onActualQualityChanged)
+        }
+        callback?(actualText)
     }
 
     func offlineStreamDescriptor(for track: Track, quality: AudioQualityTier) async throws -> AudioStreamDescriptor? {
@@ -986,17 +1016,39 @@ final class JSPluginSource:
         let ext = (rawExt?.isEmpty == false ? rawExt!.lowercased() : "m4a")
         let isLossless = (dict["isLossless"] as? Bool) ?? (ext == "flac" || ext == "wav")
         let actualTier = (dict["quality"] as? String).flatMap(AudioQualityTier.init(rawValue:)) ?? quality
+        let explicitQualityID = (dict["qualityID"] as? NSNumber)?.intValue
+            ?? (dict["qualityId"] as? NSNumber)?.intValue
+            ?? 0
+        let fallbackTierID: Int = switch actualTier {
+        case .auto: 0
+        case .standard: 1
+        case .high: 2
+        case .hifi: 3
+        case .lossless: 4
+        case .hiRes: 5
+        }
+        let qualityID = explicitQualityID != 0 ? explicitQualityID : (bitrate == 0 ? fallbackTierID : 0)
+        let rawBackupStrings = (dict["backupUrls"] as? [String]) ?? (dict["backupURLs"] as? [String]) ?? []
+        let backupURLs: [URL] = rawBackupStrings.compactMap { rawBackup in
+            let trimmed = rawBackup.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let validated = try? SourceDomainPolicy.validate(url: trimmed, allowedDomains: manifest.allowedDomains) else {
+                return nil
+            }
+            return stripBasicAuthFromURL(validated).0
+        }
 
         return AudioStreamDescriptor(
             cacheKey: TrackIdentity.storageKey(track.identity),
             fileExtension: ext,
             qualityTier: actualTier,
-            qualityID: (dict["qualityID"] as? NSNumber)?.intValue ?? 0,
+            qualityID: qualityID,
             codec: codec,
             bandwidth: bitrate,
             sampleRate: sampleRate,
             isLossless: isLossless,
             url: streamURL,
+            backupURLs: backupURLs,
             headers: headers,
             allowedDomains: manifest.allowedDomains
         )
@@ -1548,21 +1600,26 @@ final class JSPluginAccountController: SourceAccountController {
     }
 }
 
-/// 可选能力适配：插件声明了 `supportedQualities` 时的音质选择器。
+/// 可选能力适配：插件支持音质选择时的控制器。
 ///
-/// 必须可观察：设置页的音质下拉框直接读 `currentQualityTier`，否则选完之后界面停在旧值。
+/// 必须可观察：设置页的音质下拉框与「当前实际音质」直接读这里的可观察属性，切换或起播后实时刷新。
 @MainActor
 @Observable
 final class JSPluginQualityController: QualitySelectableSourceController {
     @ObservationIgnored private let source: JSPluginSource
     private(set) var currentQualityTier: AudioQualityTier
+    private(set) var lastActualQualityText: String?
 
     init(source: JSPluginSource) {
         self.source = source
         self.currentQualityTier = source.currentQuality
+        self.lastActualQualityText = source.actualQualityDescription
+        source.setOnActualQualityChanged { [weak self] text in
+            Task { @MainActor [weak self] in
+                self?.lastActualQualityText = text
+            }
+        }
     }
-
-    var lastActualQualityText: String? { source.actualQualityDescription }
 
     var availableQualityTiers: [AudioQualityTier] {
         let declared = source.manifest.capabilities.supportedQualities
@@ -1570,7 +1627,10 @@ final class JSPluginQualityController: QualitySelectableSourceController {
     }
 
     func qualityRequirementHint(for tier: AudioQualityTier) -> String? {
-        String(localized: "将优先向插件「\(source.manifest.displayName)」请求「\(tier.displayName)」音轨。")
+        if tier.prefersLossless, source.manifest.capabilities.hasAuth {
+            return String(localized: "将优先向插件「\(source.manifest.displayName)」请求「\(tier.displayName)」音轨；需要对应账号权益且曲目提供无损流，不可用时自动降级。")
+        }
+        return String(localized: "将优先向插件「\(source.manifest.displayName)」请求「\(tier.displayName)」音轨。")
     }
 
     func applyQuality(_ tier: AudioQualityTier) async -> String? {

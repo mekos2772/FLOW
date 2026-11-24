@@ -35,6 +35,23 @@ final class RVCVoiceConverter: @unchecked Sendable {
         let filterRadius: Int
         let rmsMixRate: Float
         let protect: Float
+        let duetPitchAdapt: Bool
+
+        init(
+            f0UpKey: Int,
+            indexRate: Float,
+            filterRadius: Int,
+            rmsMixRate: Float,
+            protect: Float,
+            duetPitchAdapt: Bool = false
+        ) {
+            self.f0UpKey = f0UpKey
+            self.indexRate = indexRate
+            self.filterRadius = filterRadius
+            self.rmsMixRate = rmsMixRate
+            self.protect = protect
+            self.duetPitchAdapt = duetPitchAdapt
+        }
     }
 
     /// 合成阶段的并行布局：开几路合成器、每路几个线程。
@@ -159,6 +176,7 @@ final class RVCVoiceConverter: @unchecked Sendable {
                 targetFrames: totalPLen,
                 f0UpKey: params.f0UpKey,
                 filterRadius: params.filterRadius,
+                duetPitchAdapt: params.duetPitchAdapt,
                 modelURL: rmvpeURL,
                 provider: .cpu
             )

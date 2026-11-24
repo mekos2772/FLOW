@@ -339,8 +339,9 @@ struct VoiceAdvancedPanel: View {
 
     private func optionDisplayTitle(_ opt: String) -> String {
         switch opt {
-        case "mdx-vocals": return "MDX 人声分离"
-        case "none": return "直通原曲（不分离）"
+        case "mdx-lead-vocals": return String(localized: "MDX 主唱精分（去和声）")
+        case "mdx-vocals": return String(localized: "MDX 标准人声分离")
+        case "none": return String(localized: "直通原曲（不分离）")
         default: return opt
         }
     }

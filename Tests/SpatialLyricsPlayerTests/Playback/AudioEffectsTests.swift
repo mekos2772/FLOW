@@ -134,6 +134,109 @@ final class AudioEffectsTests: XCTestCase {
         }
     }
 
+    func testDynamicPeakLimiterPreventsHarshHarmonicDistortionAndLinksStereo() {
+        let sampleRate = 44_100.0
+        // 64 个完整周期的 1 kHz 附近正弦波：前 4096 帧让限幅器进入稳态，后 4096 帧测谐波失真。
+        let fftLen = 4096
+        let cycles = 64.0
+        let totalFrames = fftLen * 2
+        var processor = AudioEffectsProcessor(
+            sampleRate: sampleRate,
+            channelCount: 2,
+            bandGainsDB: EqualizerPreset.off.defaultGainsDB,
+            loudnessGain: 1.8
+        )
+        var left = (0..<totalFrames).map { Float(sin(2.0 * Double.pi * cycles * Double($0) / Double(fftLen))) }
+        var right = left.map { $0 * 0.5 }
+        left.withUnsafeMutableBufferPointer { lPtr in
+            right.withUnsafeMutableBufferPointer { rPtr in
+                processor.processPlanar([lPtr, rPtr], frameCount: totalFrames)
+            }
+        }
+
+        let steadyL = Array(left[fftLen..<totalFrames])
+        let steadyR = Array(right[fftLen..<totalFrames])
+        let peakL = steadyL.map { abs(Double($0)) }.max() ?? 0
+        let peakR = steadyR.map { abs(Double($0)) }.max() ?? 0
+        XCTAssertLessThanOrEqual(peakL, 0.91, "稳态峰值应被动态限幅器控制在安全阈值内")
+        // 立体声联动：右声道初始为左声道的一半，限幅后仍应保持 0.5 比例，不能破坏声像平衡。
+        XCTAssertEqual(peakR / peakL, 0.5, accuracy: 0.01)
+
+        func harmonicMag(_ k: Int) -> Double {
+            var re = 0.0
+            var im = 0.0
+            let step = 2.0 * Double.pi * Double(k) / Double(fftLen)
+            for n in 0..<fftLen {
+                let s = Double(steadyL[n])
+                let angle = step * Double(n)
+                re += s * cos(angle)
+                im += s * sin(angle)
+            }
+            return hypot(re, im)
+        }
+        let fundamental = harmonicMag(Int(cycles))
+        let harmSq = (2...11).reduce(0.0) { acc, order in
+            let m = harmonicMag(Int(cycles) * order)
+            return acc + m * m
+        }
+        let thd = sqrt(harmSq) / max(fundamental, 1e-9)
+        XCTAssertLessThan(thd, 0.02, "动态峰值限幅器不应像静态削波那样产生 20%+ 的刺耳高次谐波")
+
+        // 坏采样（NaN / Inf / 溢出级浮点）不能产生 NaN 炸耳，也不能永久毒化后续正常输出。
+        XCTAssertEqual(AudioEffectsProcessor.softLimit(.nan), 0)
+        XCTAssertEqual(AudioEffectsProcessor.softLimit(.infinity), 0)
+        var eqProc = AudioEffectsProcessor(
+            sampleRate: sampleRate,
+            channelCount: 1,
+            bandGainsDB: EqualizerPreset.vocal.defaultGainsDB,
+            loudnessGain: 2.0
+        )
+        var dirty: [Float] = [.nan, .infinity, 2e38, 0.2, 0.2, 0.2, 0.2]
+        dirty.withUnsafeMutableBufferPointer { ptr in
+            eqProc.processPlanar([ptr], frameCount: ptr.count)
+        }
+        XCTAssertTrue(dirty.allSatisfy(\.isFinite), "任何坏采样都不应输出 NaN/Inf")
+        XCTAssertGreaterThan(abs(dirty.last ?? 0), 0.05, "坏采样后的正常信号不应因 IIR 毒化而永久静音")
+    }
+
+    func testLoudnessAnalyzerScansFullTrackAndIgnoresLegacyV1Cache() async throws {
+        // 构造前 1 秒轻柔 (0.15)、后 1 秒高潮 (0.95) 的 WAV，模拟“前奏轻柔、副歌响亮”的流行歌。
+        let wavURL = tempDir.appendingPathComponent("dynamic-intro.wav")
+        let sr = 44_100.0
+        do {
+            let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr, channels: 1, interleaved: false))
+            let file = try AVAudioFile(forWriting: wavURL, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            let framesPerSection = Int(sr)
+            let buf = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(framesPerSection)))
+            buf.frameLength = AVAudioFrameCount(framesPerSection)
+            let ptr = try XCTUnwrap(buf.floatChannelData?[0])
+            for i in 0..<framesPerSection {
+                ptr[i] = Float(0.15 * sin(2 * Double.pi * 440 * Double(i) / sr))
+            }
+            try file.write(from: buf)
+            for i in 0..<framesPerSection {
+                ptr[i] = Float(0.95 * sin(2 * Double.pi * 440 * Double(i) / sr))
+            }
+            try file.write(from: buf)
+        }
+
+        let truncatedRaw = await LoudnessAnalyzer.analyzeFile(at: wavURL, maxSeconds: 1)
+        let fullRaw = await LoudnessAnalyzer.analyzeFile(at: wavURL)
+        let truncated = try XCTUnwrap(truncatedRaw)
+        let full = try XCTUnwrap(fullRaw)
+        XCTAssertGreaterThan(truncated.recommendedGain, 1.3, "截断前段会误判为低响度并推高增益")
+        XCTAssertGreaterThan(full.peak, 0.90, "默认全曲扫描必须捕获后半段真实峰值")
+        XCTAssertLessThanOrEqual(Double(full.recommendedGain) * full.peak, LoudnessAnalyzer.peakSafetyCeiling + 0.01)
+
+        // 旧版 v1 缓存必须被忽略，避免历史算错的 1.8x 增益继续毒化高潮段。
+        let legacyURL = tempDir.appendingPathComponent("loudness-v2.json")
+        let legacyJSON = #"{"version":1,"profiles":{"old-key":{"rms":0.06,"peak":0.47,"recommendedGain":1.8,"measuredAt":0}}}"#
+        try Data(legacyJSON.utf8).write(to: legacyURL)
+        let cache = LoudnessCache(fileURL: legacyURL)
+        let loadedLegacy = await cache.cachedProfile(forKey: "old-key")
+        XCTAssertNil(loadedLegacy)
+    }
+
     // MARK: - LoudnessAnalyzer & LoudnessCache
 
     func testLoudnessAnalyzerMeasuresQuietHotAndSilentSignals() {

@@ -433,4 +433,54 @@ final class ReviewFixRegressionTests: XCTestCase {
         XCTAssertEqual(descriptor?.cacheKey, TrackIdentity.storageKey(track.identity))
         XCTAssertNil(source.actualQualityDescription)
     }
+
+    /// 社区 JS 插件未声明 supportedQualities 也应拥有音质控制器，且解析 qualityID/backupUrls 并实时更新实际音质。
+    func testJSPluginQualityControllerTracksActualQualityAndBackupURLs() async throws {
+        FakeBiliTransport.routes = [("cdn.lossless.test", try fixtureAudio())]
+        let script = #"""
+        module.exports = {
+          id: "community-lossless",
+          platform: "Community Lossless",
+          version: "1.0.0",
+          allowedDomains: ["cdn.lossless.test"],
+          async search(query) { return { data: [{ id: "t1", title: "T1", artist: "A", duration: 1 }] }; },
+          async getMediaSource(item, quality) {
+            return {
+              url: "https://cdn.lossless.test/" + item.id + ".m4a",
+              backupUrls: ["https://cdn.lossless.test/backup-" + item.id + ".m4a"],
+              qualityID: 30251,
+              codec: "FLAC",
+              bitrate: 1400000,
+              isLossless: true,
+              quality: "hiRes"
+            };
+          }
+        };
+        """#
+        let source = try JSPluginSource(scriptSource: script, fallbackID: "community-lossless",
+                                        session: FakeBiliTransport.makeSession(),
+                                        secrets: InMemorySecretStore(),
+                                        audioCache: makeCache())
+        defer { source.runtime.invalidate() }
+        XCTAssertTrue(source.descriptor.supportsQualitySelection)
+
+        let controller = JSPluginQualityController(source: source)
+        XCTAssertNil(controller.lastActualQualityText)
+        let track = Track(sourceID: source.manifest.sourceID, externalID: "t1", title: "T1", artist: "A", duration: 1)
+        let rawDesc = try await source.offlineStreamDescriptor(for: track, quality: .hiRes)
+        let desc = try XCTUnwrap(rawDesc)
+        XCTAssertEqual(desc.qualityID, 30251)
+        XCTAssertTrue(desc.isLossless)
+        XCTAssertEqual(desc.backupURLs.map(\.absoluteString), ["https://cdn.lossless.test/backup-t1.m4a"])
+
+        let prewarm = try await source.makePrewarmSession(for: track)
+        XCTAssertNil(source.actualQualityDescription, "预热下一首不应提前覆盖当前实际音质")
+        XCTAssertNil(controller.lastActualQualityText)
+        source.noteSessionPromoted(prewarm)
+        await prewarm.invalidate()
+        for _ in 0..<20 where controller.lastActualQualityText == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.lastActualQualityText, "FLAC · 1.40 Mbps")
+    }
 }

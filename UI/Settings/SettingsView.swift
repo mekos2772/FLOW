@@ -470,8 +470,25 @@ private struct OnlineMusicPane: View {
         return managedSources.first { $0.isEnabled && $0.accountController != nil }
     }
 
+    private var variableCredentialSource: SourceManager.ManagedSource? {
+        guard let manager = app?.sourceManager else { return nil }
+        if let active = manager.activeBrowseSource,
+           !manager.userVariableSpecs(for: active.id).isEmpty {
+            return active
+        }
+        return managedSources.first {
+            $0.isEnabled && !manager.userVariableSpecs(for: $0.id).isEmpty
+        }
+    }
+
     private var qualityController: (any QualitySelectableSourceController)? {
-        app?.sourceManager.activeQualityController
+        if let playingSourceID = app?.playback.currentTrack?.sourceID,
+           let playing = app?.sourceManager.managedSource(for: playingSourceID),
+           playing.isEnabled,
+           let controller = playing.qualityController {
+            return controller
+        }
+        return app?.sourceManager.activeQualityController
     }
 
     var body: some View {
@@ -701,8 +718,30 @@ private struct OnlineMusicPane: View {
         .task {
             cacheSize = await Self.measureCacheSize()
             _ = await app?.offline.refresh()
+        }
+        .task(id: activeAccountSource?.id) {
             if let controller = activeAccountSource?.accountController {
                 await controller.refreshAuthStatus()
+            }
+        }
+        .onChange(of: activeAccountSource?.accountController?.authState) { oldValue, newValue in
+            guard case .signedIn = newValue else { return }
+            // 仅在主动扫码登录完成时刷新流；打开设置页刷新已登录状态不应打断当前播放。
+            let wasActivelySigningIn: Bool = switch oldValue {
+            case .showingQR, .scanned: true
+            default: false
+            }
+            guard wasActivelySigningIn,
+                  let sourceID = activeAccountSource?.id,
+                  let playback = app?.playback else { return }
+            if playback.state != .idle,
+               !playback.isPlayingVoiceAI,
+               playback.currentTrack?.sourceID == sourceID {
+                Task {
+                    await playback.reloadAudioSource(autoplayIfInactive: false)
+                }
+            } else {
+                playback.invalidatePrewarm()
             }
         }
         .sheet(isPresented: $showsServerSheet) {
@@ -754,6 +793,7 @@ private struct OnlineMusicPane: View {
                         FlowCaption(verbatim: summary)
                         FlowTextButton(title: "退出登录", symbolName: "rectangle.portrait.and.arrow.right") {
                             controller.signOut()
+                            app?.playback.invalidatePrewarm()
                         }
                     case .signedOut, .showingQR, .scanned, .expired, .failed:
                         FlowCaption(text: "未登录")
@@ -811,6 +851,13 @@ private struct OnlineMusicPane: View {
                     FlowCaption(verbatim: detail)
                 }
             }
+        } else if let credSource = variableCredentialSource {
+            SettingsRow(title: LocalizedStringKey(credSource.descriptor.displayName),
+                        detail: "该插件未提供扫码登录，可在音源参数中填写登录凭据（Cookie），或导入支持扫码登录的音源插件。") {
+                FlowTextButton(title: "配置凭据", symbolName: "key.horizontal") {
+                    editingVariablesSource = credSource
+                }
+            }
         } else {
             SettingsRow(title: "当前账号",
                         detail: "当前选中的音源无需账号授权，或在配置界面直接绑定凭据。") {
@@ -844,9 +891,19 @@ private struct OnlineMusicPane: View {
             Picker("", selection: Binding(
                 get: { currentTier },
                 set: { newValue in
+                    guard newValue != currentTier else { return }
                     Task {
                         await app?.settings.setPreferredQualityRaw(newValue.rawValue)
                         await app?.sourceManager.applyPreferredQuality(newValue)
+                        guard let playback = app?.playback else { return }
+                        if playback.state != .idle,
+                           !playback.isPlayingVoiceAI,
+                           let currentSourceID = playback.currentTrack?.sourceID,
+                           app?.sourceManager.managedSource(for: currentSourceID)?.qualityController != nil {
+                            await playback.reloadAudioSource(autoplayIfInactive: false)
+                        } else {
+                            playback.invalidatePrewarm()
+                        }
                     }
                 }
             )) {
@@ -1408,6 +1465,23 @@ private struct AboutPane: View {
                             detail: "一件能在桌面上舒展、收缩、折叠的界面。歌词跟着你，不打断你。") {
                     FlowCaption(verbatim: "版本 \(version)")
                 }
+                SettingsRow(title: "软件更新",
+                            detail: "手动向 GitHub Releases 查询新版本，仅在点击时联网。") {
+                    if app?.updateChecker.state == .checking {
+                        HStack(spacing: Spacing.xxs) {
+                            ProgressView()
+                                .controlSize(.small)
+                            FlowCaption(text: "检查中…")
+                        }
+                    } else {
+                        FlowTextButton(title: "检查更新", symbolName: "arrow.triangle.2.circlepath") {
+                            Task { await app?.updateChecker.checkForUpdates() }
+                        }
+                    }
+                }
+                if let updateState = app?.updateChecker.state {
+                    updateStatusView(for: updateState)
+                }
                 SettingsRow(title: "音源",
                             detail: "内置本地目录与标准媒体服务器协议，并支持通过插件或 JSON 模板自由扩展。") {
                     EmptyView()
@@ -1422,8 +1496,6 @@ private struct AboutPane: View {
                 }
             }
 
-            // 原来这一页只有三段散文，没有任何可以动手的东西。
-            // 这里放的都是**真的能做**的事，不做假的"检查更新"（没有更新服务器就别骗人）。
             // 数据被从备份恢复过、或库损坏被隔离过——这种事必须让用户看见，
             // 而不是只藏在"复制诊断"的文本里（第 119 节的演练就发现了这个空洞）。
             if let app, let state = storageNoticeText(for: app) {
@@ -1485,6 +1557,62 @@ private struct AboutPane: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func updateStatusView(for state: AppUpdateState) -> some View {
+        switch state {
+        case .idle, .checking:
+            EmptyView()
+        case .upToDate(let current):
+            Text(String(localized: "当前已是最新版本（v\(current)）"))
+                .flowType(.caption)
+                .foregroundStyle(FlowColor.secondaryText)
+        case .updateAvailable(let info):
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(String(localized: "发现新版本 \(info.tagName)"))
+                    .flowType(.caption)
+                    .foregroundStyle(.primary)
+                if let summary = info.summary {
+                    Text(verbatim: summary)
+                        .flowType(.caption)
+                        .foregroundStyle(FlowColor.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: Spacing.xxs) {
+                    if let downloadURL = info.downloadURL {
+                        FlowTextButton(title: "下载安装包", symbolName: "arrow.down.circle") {
+                            NSWorkspace.shared.open(downloadURL)
+                        }
+                    }
+                    FlowTextButton(title: "前往发布页", symbolName: "safari") {
+                        NSWorkspace.shared.open(info.releaseURL)
+                    }
+                }
+            }
+            .padding(.top, 2)
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(verbatim: message)
+                    .flowType(.caption)
+                    .foregroundStyle(FlowColor.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Spacing.xxs) {
+                    if let app, !app.settings.enableNetwork {
+                        FlowTextButton(title: "允许联网", symbolName: "network") {
+                            Task {
+                                await app.setEnableNetwork(true)
+                                await app.updateChecker.checkForUpdates()
+                            }
+                        }
+                    }
+                    FlowTextButton(title: "前往发布页", symbolName: "safari") {
+                        NSWorkspace.shared.open(AppUpdateChecker.releasesPageURL)
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
     }
 }
 

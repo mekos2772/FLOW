@@ -392,10 +392,11 @@ final class SourceManager: OfflineAudioResolving {
     }
 
     var activeQualityController: (any QualitySelectableSourceController)? {
-        if let active = activeBrowseSource?.qualityController {
-            return active
+        if let active = activeBrowseSource, active.isEnabled, let controller = active.qualityController {
+            return controller
         }
-        return sources.compactMap(\.qualityController).first
+        return sources.first { $0.isEnabled && $0.qualityController != nil }?.qualityController
+            ?? sources.compactMap(\.qualityController).first
     }
 
     func relatedProvider(for sourceID: SourceID) -> (any RelatedRadioSourceProvider)? {
@@ -722,7 +723,7 @@ final class SourceManager: OfflineAudioResolving {
             let account: (any SourceAccountController)? = source.manifest.capabilities.hasAuth
                 ? JSPluginAccountController(source: source)
                 : nil
-            let quality: (any QualitySelectableSourceController)? = !source.manifest.capabilities.supportedQualities.isEmpty
+            let quality: (any QualitySelectableSourceController)? = source.descriptor.supportsQualitySelection
                 ? JSPluginQualityController(source: source)
                 : nil
             registerSource(

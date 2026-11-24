@@ -29,6 +29,7 @@ final class RMVPEPitchExtractor: @unchecked Sendable {
         targetFrames pLen: Int,
         f0UpKey: Int,
         filterRadius: Int,
+        duetPitchAdapt: Bool = false,
         modelURL: URL,
         provider: ORTExecutionProvider
     ) async throws -> (coarse: [Int64], continuous: [Float]) {
@@ -91,9 +92,14 @@ final class RMVPEPitchExtractor: @unchecked Sendable {
             }
         }
 
-        // filter_radius >= 3 时对连续有声段应用 3 点中值平滑（对齐 RVC 去跳变习惯；< 3 保留原始 RMVPE）
+        // filter_radius >= 3 时先桥接 1–2 帧瞬时干涉掉零，再对连续有声段应用 3 点中值平滑（不拿 0 吃掉字头字尾）。
         if filterRadius >= 3 {
-            f0 = medianFilter3(f0)
+            f0 = Self.bridgeShortUnvoicedGaps(f0, maxGapFrames: 2)
+            f0 = Self.medianFilterVoiced3(f0)
+        }
+
+        if duetPitchAdapt {
+            f0 = Self.adaptDuetOctaves(f0)
         }
 
         // 截断或右侧补齐至 pLen
@@ -169,13 +175,148 @@ final class RMVPEPitchExtractor: @unchecked Sendable {
         }
     }
 
-    private func medianFilter3(_ x: [Float]) -> [Float] {
+    /// 对夹在两个相近有声帧之间的短时（1–2 帧）干涉跌零做线性插值桥接，减少和声/双人干涉引起的瞬时哑音。
+    static func bridgeShortUnvoicedGaps(_ x: [Float], maxGapFrames: Int = 2) -> [Float] {
+        guard x.count >= 3, maxGapFrames > 0 else { return x }
+        var out = x
+        var i = 1
+        while i < out.count - 1 {
+            if out[i] <= 0, out[i - 1] > 0 {
+                var end = i
+                while end < out.count, out[end] <= 0 {
+                    end += 1
+                }
+                let gapLen = end - i
+                if gapLen <= maxGapFrames, end < out.count, out[end] > 0 {
+                    let left = out[i - 1]
+                    let right = out[end]
+                    let ratio = max(left, right) / max(min(left, right), 1e-3)
+                    if ratio <= 1.45 {
+                        for k in 0..<gapLen {
+                            let t = Float(k + 1) / Float(gapLen + 1)
+                            out[i + k] = left + (right - left) * t
+                        }
+                    }
+                }
+                i = end
+            } else {
+                i += 1
+            }
+        }
+        return out
+    }
+
+    /// 仅在连续有声帧内做 3 点中值平滑，避免无声帧 `0` 吞掉清浊音边界。
+    static func medianFilterVoiced3(_ x: [Float]) -> [Float] {
         guard x.count >= 3 else { return x }
         var out = x
         for i in 1..<(x.count - 1) {
             let a = x[i - 1], b = x[i], c = x[i + 1]
+            guard a > 0, b > 0, c > 0 else { continue }
             let sorted = [a, b, c].sorted()
             out[i] = sorted[1]
+        }
+        return out
+    }
+
+    /// 男女交替对唱 / 跨八度乐句音域自适应：
+    /// 仅当检测到乐句间存在明显的跨八度双峰（高低乐句中位差 >= 8.5 半音）时，
+    /// 以最接近中心人声舒适区（MIDI 60 / ~261 Hz）的那组乐句作为锚点，将偏离的乐句按整数八度（±12 半音）对齐，
+    /// 避免一半段落掉出 RVC 模型训练音域而哑火或飙高破音；单人独唱（跨度 < 8.5 半音）完全不改动。
+    static func adaptDuetOctaves(
+        _ x: [Float],
+        minSilenceGapFrames: Int = 30,
+        minPhraseVoicedFrames: Int = 15
+    ) -> [Float] {
+        guard x.count >= minPhraseVoicedFrames * 2 else { return x }
+
+        struct Phrase {
+            let range: Range<Int>
+            let medianSemi: Float
+            let voicedCount: Int
+        }
+
+        // 1. 按连续静音 >= minSilenceGapFrames 切分独立乐句
+        var phrases: [Phrase] = []
+        var phraseStart: Int?
+        var lastVoiced: Int?
+        var voicedSemis: [Float] = []
+
+        func flushPhrase() {
+            guard let s = phraseStart, let e = lastVoiced else { return }
+            if voicedSemis.count >= minPhraseVoicedFrames {
+                voicedSemis.sort()
+                let mid = voicedSemis[voicedSemis.count / 2]
+                phrases.append(Phrase(range: s..<(e + 1), medianSemi: mid, voicedCount: voicedSemis.count))
+            }
+            phraseStart = nil
+            lastVoiced = nil
+            voicedSemis.removeAll(keepingCapacity: true)
+        }
+
+        for i in 0..<x.count {
+            let hz = x[i]
+            if hz > 20 {
+                if let prev = lastVoiced, (i - prev) > minSilenceGapFrames {
+                    flushPhrase()
+                }
+                if phraseStart == nil { phraseStart = i }
+                lastVoiced = i
+                voicedSemis.append(69.0 + 12.0 * log2f(hz / 440.0))
+            }
+        }
+        flushPhrase()
+
+        guard phrases.count >= 2 else { return x }
+
+        // 2. 检查是否存在明显的双峰跨八度分布
+        let sortedMids = phrases.map(\.medianSemi).sorted()
+        let lowMid = sortedMids.first ?? 60
+        let highMid = sortedMids.last ?? 60
+        guard (highMid - lowMid) >= 8.5 else { return x }
+
+        // 找相邻乐句中位间的最大断层，将所有乐句切分为低音域组与高音域组
+        var bestSplitIdx = 0
+        var bestGap: Float = -1
+        for i in 0..<(sortedMids.count - 1) {
+            let gap = sortedMids[i + 1] - sortedMids[i]
+            if gap > bestGap {
+                bestGap = gap
+                bestSplitIdx = i
+            }
+        }
+        let splitThreshold = 0.5 * (sortedMids[bestSplitIdx] + sortedMids[bestSplitIdx + 1])
+        let lowGroup = phrases.filter { $0.medianSemi <= splitThreshold }
+        let highGroup = phrases.filter { $0.medianSemi > splitThreshold }
+        guard !lowGroup.isEmpty, !highGroup.isEmpty else { return x }
+
+        func groupMedian(_ group: [Phrase]) -> Float {
+            let vals = group.map(\.medianSemi).sorted()
+            return vals[vals.count / 2]
+        }
+        let lowCenter = groupMedian(lowGroup)
+        let highCenter = groupMedian(highGroup)
+        guard (highCenter - lowCenter) >= 8.5 else { return x }
+
+        // 3. 选择最接近人声中心舒适区（MIDI 60 ≈ 261 Hz）的那组作为锚点音域
+        let comfortCenter: Float = 60.0
+        let anchorSemi = abs(lowCenter - comfortCenter) <= abs(highCenter - comfortCenter)
+            ? lowCenter
+            : highCenter
+
+        var out = x
+        for phrase in phrases {
+            let diff = anchorSemi - phrase.medianSemi
+            guard abs(diff) >= 7.5 else { continue }
+            let octaveShift = (diff / 12.0).rounded()
+            guard octaveShift != 0 else { continue }
+            let targetSemi = phrase.medianSemi + octaveShift * 12.0
+            // 仅当平移后确实落在安全可合成人声音域（MIDI 45..76 ≈ 110..660 Hz）内才应用
+            guard targetSemi >= 45.0, targetSemi <= 76.0 else { continue }
+            let factor = powf(2.0, octaveShift)
+            for idx in phrase.range where out[idx] > 0 {
+                out[idx] = min(max(out[idx] * factor, 50.0), 1100.0)
+            }
         }
         return out
     }

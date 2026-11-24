@@ -7,6 +7,7 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
         case rmvpe
         case hubert
         case mdxSeparator
+        case mdxKaraoke
 
         var id: String { rawValue }
 
@@ -15,6 +16,7 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             case .rmvpe: return "rmvpe.onnx"
             case .hubert: return "hubert_base.onnx"
             case .mdxSeparator: return "UVR-MDX-NET-Voc_FT.onnx"
+            case .mdxKaraoke: return "UVR_MDXNET_KARA_2.onnx"
             }
         }
 
@@ -23,6 +25,7 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             case .rmvpe: return "音高模型（rmvpe.onnx）"
             case .hubert: return "声音特征模型（hubert_base.onnx）"
             case .mdxSeparator: return "人声分离模型（UVR-MDX-NET-Voc_FT.onnx）"
+            case .mdxKaraoke: return "主唱去和声模型（UVR_MDXNET_KARA_2.onnx）"
             }
         }
 
@@ -30,6 +33,8 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             switch self {
             case .mdxSeparator:
                 return URL(string: "https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDXNet/UVR-MDX-NET-Voc_FT.onnx")
+            case .mdxKaraoke:
+                return URL(string: "https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDXNet/UVR_MDXNET_KARA_2.onnx")
             case .rmvpe:
                 return URL(string: "https://huggingface.co/TigreGotico/voiceclonnx-rvc/resolve/main/rmvpe.onnx")
             case .hubert:
@@ -41,6 +46,11 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             switch self {
             case .mdxSeparator:
                 if let github = URL(string: "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Voc_FT.onnx") {
+                    return [github]
+                }
+                return []
+            case .mdxKaraoke:
+                if let github = URL(string: "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR_MDXNET_KARA_2.onnx") {
                     return [github]
                 }
                 return []
@@ -58,6 +68,8 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             switch self {
             case .mdxSeparator:
                 return "534b2070fcc7df514b13ef660dc8cbb328679c2374d04354a5c42bb14ecce111"
+            case .mdxKaraoke:
+                return "bf32e15105a09c0f7dddd2b67346146334d6f3ecb399ed7638eba2ab07cbf5f4"
             case .rmvpe:
                 return "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd"
             case .hubert:
@@ -117,7 +129,11 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
         }
     }
 
-    func missingRequiredAssets(requiresF0: Bool, requiresSeparation: Bool) -> [AssetKind] {
+    func missingRequiredAssets(
+        requiresF0: Bool,
+        requiresSeparation: Bool,
+        requiresKaraoke: Bool = false
+    ) -> [AssetKind] {
         let statuses = Dictionary(uniqueKeysWithValues: statusSummary().map { ($0.kind, $0.isReady) })
         var missing: [AssetKind] = []
         if statuses[.hubert] != true {
@@ -128,6 +144,9 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
         }
         if requiresSeparation, statuses[.mdxSeparator] != true {
             missing.append(.mdxSeparator)
+        }
+        if requiresKaraoke, statuses[.mdxKaraoke] != true {
+            missing.append(.mdxKaraoke)
         }
         return missing
     }
@@ -282,7 +301,7 @@ final class VoiceModelAssetsManager: @unchecked Sendable {
             guard !inputs.isEmpty, !outputs.isEmpty else {
                 throw VoiceError.unsupportedModel("hubert_base.onnx 缺少输入或输出节点")
             }
-        case .mdxSeparator:
+        case .mdxSeparator, .mdxKaraoke:
             guard let first = inputs.first, first.shape.count == 4, first.shape[1] == 4 else {
                 throw VoiceError.unsupportedModel("MDX 分离模型输入应为 4 通道 STFT 张量 [B, 4, dimF, dimT]")
             }

@@ -313,4 +313,67 @@ final class VoiceAudioDSPAndPackTests: XCTestCase {
         XCTAssertTrue(assets.missingRequiredAssets(requiresF0: true, requiresSeparation: true).contains(.hubert))
         XCTAssertNotNil(assets.statusSummary().first { $0.kind == .hubert }?.incompatibleReason)
     }
+
+    func testRMVPEGapBridgingAndVoicedMedianPreservePhraseEdges() {
+        // 1–2 帧瞬时干涉掉零应插值补回；3 帧以上真静音保持为 0；连续有声段内单帧毛刺被中值抹平但不吃掉边界。
+        let raw: [Float] = [0, 220, 0, 224, 226, 0, 0, 230, 0, 0, 0, 240, 480, 244, 0]
+        let bridged = RMVPEPitchExtractor.bridgeShortUnvoicedGaps(raw, maxGapFrames: 2)
+        XCTAssertEqual(bridged[0], 0)
+        XCTAssertEqual(bridged[2], 222, accuracy: 0.1)
+        XCTAssertEqual(bridged[5], 227.33, accuracy: 0.2)
+        XCTAssertEqual(bridged[6], 228.66, accuracy: 0.2)
+        XCTAssertEqual(bridged[8], 0, "3 帧以上静音不应桥接")
+        XCTAssertEqual(bridged[9], 0)
+        XCTAssertEqual(bridged[10], 0)
+
+        let smoothed = RMVPEPitchExtractor.medianFilterVoiced3(bridged)
+        XCTAssertEqual(smoothed[1], 220, "字头有声帧不应被相邻 0 吃掉")
+        XCTAssertEqual(smoothed[12], 244, "连续有声段内的单帧八度毛刺应被抹平")
+        XCTAssertEqual(smoothed[13], 244, "字尾有声帧不应被相邻 0 吃掉")
+    }
+
+    func testRMVPEDuetOctaveAdaptationAlignsDuetAndLeavesSoloUntouched() {
+        let silence = [Float](repeating: 0, count: 40)
+        let malePhrase = [Float](repeating: 140, count: 50)   // ~MIDI 49
+        let femalePhrase = [Float](repeating: 310, count: 50) // ~MIDI 63
+
+        // 场景 1：f0_up_key = 0 男女交替对唱 -> 男声段抬高一个八度到 280 Hz 对齐女声舒适区
+        let duet = malePhrase + silence + femalePhrase
+        let adapted0 = RMVPEPitchExtractor.adaptDuetOctaves(duet)
+        XCTAssertEqual(adapted0[10], 280, accuracy: 1.0)
+        XCTAssertEqual(adapted0[100], 310, accuracy: 1.0)
+
+        // 场景 2：f0_up_key = +12（男 280 Hz / 女 620 Hz）-> 飙高的女声段拉回一个八度到 310 Hz
+        let duetPlus12 = duet.map { $0 * 2.0 }
+        let adaptedPlus12 = RMVPEPitchExtractor.adaptDuetOctaves(duetPlus12)
+        XCTAssertEqual(adaptedPlus12[10], 280, accuracy: 1.0)
+        XCTAssertEqual(adaptedPlus12[100], 310, accuracy: 1.0)
+
+        // 场景 3：单人独唱（主歌 220 Hz vs 副歌 310 Hz，跨度 ~6 半音）-> 完全不动
+        let solo = [Float](repeating: 220, count: 50) + silence + femalePhrase
+        let adaptedSolo = RMVPEPitchExtractor.adaptDuetOctaves(solo)
+        XCTAssertEqual(adaptedSolo, solo)
+    }
+
+    func testKaraokeAssetMetadataAndStereoBackingMixProtection() {
+        let kind = VoiceModelAssetsManager.AssetKind.mdxKaraoke
+        XCTAssertEqual(kind.fileName, "UVR_MDXNET_KARA_2.onnx")
+        XCTAssertEqual(kind.expectedSHA256?.count, 64)
+        XCTAssertNotNil(kind.downloadURL)
+        XCTAssertFalse(kind.alternateDownloadURLs.isEmpty)
+
+        let assets = VoiceModelAssetsManager(voiceRoot: tempDir.appendingPathComponent("KaraAssets", isDirectory: true))
+        XCTAssertFalse(assets.missingRequiredAssets(requiresF0: true, requiresSeparation: true, requiresKaraoke: false).contains(.mdxKaraoke))
+        XCTAssertTrue(assets.missingRequiredAssets(requiresF0: true, requiresSeparation: true, requiresKaraoke: true).contains(.mdxKaraoke))
+
+        // 合并纯伴奏与剥离和声：结果按 0.99 防削波缩放且保持左右立体声分离。
+        let mixed = VoiceAudioDSP.mixStereoTracks(
+            firstLeft: [0.7, -0.2],
+            firstRight: [0.3, -0.5],
+            secondLeft: [0.5, -0.1],
+            secondRight: [0.2, -0.2]
+        )
+        XCTAssertEqual(mixed.left[0], 0.99, accuracy: 1e-4)
+        XCTAssertLessThan(mixed.right[0], mixed.left[0], "合并立体声轨应保留左右声像差异")
+    }
 }

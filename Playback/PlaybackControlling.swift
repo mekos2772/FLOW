@@ -76,10 +76,14 @@ protocol PlaybackControlling: AnyObject {
     func dispatch(_ event: PlaybackEvent) async
     /// 在保留当前曲目进度的前提下重载音频会话（如切换原曲 / AI 翻唱或音源更新）。
     func reloadAudioSource(autoplayIfInactive: Bool) async
+    /// 作废后台已预热的下一首会话（如切音质、登录态变化后避免下一首命中旧流）。
+    func invalidatePrewarm()
 }
 
 extension PlaybackControlling {
     var isPlayingVoiceAI: Bool { false }
+
+    func invalidatePrewarm() {}
 
     func reloadAudioSource(autoplayIfInactive: Bool) async {
         guard let track = currentTrack else { return }

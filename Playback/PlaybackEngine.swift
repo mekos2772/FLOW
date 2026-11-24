@@ -176,6 +176,11 @@ final class PlaybackEngine: PlaybackControlling {
 
     func stop() async { await dispatch(.stop) }
 
+    func invalidatePrewarm() {
+        coordinator.cancelPrewarm()
+        syncPrewarm()
+    }
+
     func reloadAudioSource(autoplayIfInactive: Bool) async {
         guard let track = currentTrack else { return }
         coordinator.cancelPrewarm()

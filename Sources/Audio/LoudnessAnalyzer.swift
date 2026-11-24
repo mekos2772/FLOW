@@ -15,6 +15,8 @@ enum LoudnessAnalyzer {
     static let defaultTargetRMS: Double = 0.15
     /// 静默门限：忽略 < -55 dBFS 的静音段，避免长前奏静音拉高整首增益。
     static let silenceFloor: Double = 0.0018
+    /// 峰值安全上限（约 -1.0 dBFS），给 AAC 跨采样峰值与系统重采样预留 headroom，避免高潮段破音。
+    static let peakSafetyCeiling: Double = 0.89
     static let gainRange: ClosedRange<Float> = 0.35...1.8
 
     static func computeProfile(rmsSquaredSum: Double, activeSamples: Int, peak: Double) -> LoudnessProfile? {
@@ -22,7 +24,7 @@ enum LoudnessAnalyzer {
         let rms = sqrt(rmsSquaredSum / Double(activeSamples))
         guard rms.isFinite, rms > 0 else { return nil }
         let rawGain = defaultTargetRMS / rms
-        let peakCeiling = 0.98 / max(peak, 0.001)
+        let peakCeiling = peakSafetyCeiling / max(peak, 0.001)
         let clamped = Float(min(rawGain, peakCeiling))
         let safeGain = min(max(clamped, gainRange.lowerBound), gainRange.upperBound)
         return LoudnessProfile(rms: rms, peak: peak, recommendedGain: safeGain, measuredAt: Date())
@@ -33,6 +35,7 @@ enum LoudnessAnalyzer {
         var active = 0
         var peak: Double = 0
         for sample in samples {
+            guard sample.isFinite, abs(sample) < 1e4 else { continue }
             let v = Double(abs(sample))
             if v > peak { peak = v }
             if v >= silenceFloor {
@@ -43,8 +46,11 @@ enum LoudnessAnalyzer {
         return computeProfile(rmsSquaredSum: sumSq, activeSamples: active, peak: peak)
     }
 
-    /// 对本地音频文件解码前 `maxSeconds`（默认 60 秒）采样，离线测出推荐响度增益。
-    static func analyzeFile(at url: URL, maxSeconds: Double = 60) async -> LoudnessProfile? {
+    /// 对本地音频文件解码采样并离线测出推荐响度增益。
+    ///
+    /// 默认扫描前 15 分钟（`maxSeconds = 900`），覆盖绝大多数完整歌曲（避免前奏轻柔、60 秒后副歌响亮的曲目
+    /// 被低估峰值而推高增益导致破音），同时防止数小时长播客/合集在后台长时间解码；传 `0` 表示不限制时长。
+    static func analyzeFile(at url: URL, maxSeconds: Double = 900) async -> LoudnessProfile? {
         await Task.detached(priority: .utility) {
             await readAndMeasure(url: url, maxSeconds: maxSeconds)
         }.value
@@ -89,6 +95,7 @@ enum LoudnessAnalyzer {
                         UnsafeBufferPointer(start: $0, count: count)
                     }
                     for sample in floats {
+                        guard sample.isFinite, abs(sample) < 1e4 else { continue }
                         let v = Double(abs(sample))
                         if v > peak { peak = v }
                         if v >= silenceFloor {
@@ -104,14 +111,16 @@ enum LoudnessAnalyzer {
     }
 }
 
-/// 曲目响度元数据磁盘缓存（`loudness-v1.json`），二次播放立即可用。
+/// 曲目响度元数据磁盘缓存（`loudness-v2.json`），二次播放立即可用。
+///
+/// v2 起改为全曲峰值与响度测量并预留 -1 dBFS 余量，自动作废早期仅测前 60 秒的 v1 缓存。
 actor LoudnessCache {
     static let shared = LoudnessCache(
-        fileURL: RuntimeSandbox.cachesDirectory().appendingPathComponent("FLOW/loudness-v1.json")
+        fileURL: RuntimeSandbox.cachesDirectory().appendingPathComponent("FLOW/loudness-v2.json")
     )
 
     private struct Manifest: Codable, Sendable {
-        var version: Int = 1
+        var version: Int = 2
         var profiles: [String: LoudnessProfile] = [:]
     }
 
@@ -124,7 +133,7 @@ actor LoudnessCache {
         if let fileURL,
            let data = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder().decode(Manifest.self, from: data),
-           decoded.version == 1 {
+           decoded.version == 2 {
             self.profiles = decoded.profiles
         }
     }

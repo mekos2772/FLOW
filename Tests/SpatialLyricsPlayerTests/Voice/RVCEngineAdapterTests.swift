@@ -90,7 +90,8 @@ final class RVCEngineAdapterTests: XCTestCase {
     func testNormalizeFillsDefaults() {
         let out = RVCEngineAdapter().normalizeParameters([:])
         XCTAssertEqual(out["f0_up_key"], .int(0))
-        XCTAssertEqual(out["separation_model"], .string("mdx-vocals"))
+        XCTAssertEqual(out["separation_model"], .string("mdx-lead-vocals"))
+        XCTAssertEqual(out["duet_pitch_adapt"], .bool(true))
         XCTAssertEqual(out["index_rate"], .double(0.75))
         XCTAssertEqual(out["filter_radius"], .int(3))
         XCTAssertEqual(out["rms_mix_rate"], .double(0.25))
@@ -112,7 +113,7 @@ final class RVCEngineAdapterTests: XCTestCase {
         let out = RVCEngineAdapter().normalizeParameters([
             "separation_model": .string("unsupported-separator")
         ])
-        XCTAssertEqual(out["separation_model"], .string("mdx-vocals"))
+        XCTAssertEqual(out["separation_model"], .string("mdx-lead-vocals"))
     }
 
     func testNormalizePassesThroughUnknownKeys() {

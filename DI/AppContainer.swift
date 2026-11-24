@@ -36,6 +36,8 @@ final class AppContainer {
     let networkMonitor: NetworkConnectivityMonitor
     let relatedRadio: RelatedRadioDriver
     let playbackRecovery: PlaybackRecoveryDriver
+    /// 基于 GitHub Releases API 的手动检查更新器（不自动联网）。
+    let updateChecker: AppUpdateChecker
     /// 睡眠定时驱动器。`SleepTimerDriver` 是 @MainActor，构造发生在 MainActor 上，
     /// 所以由 AppDelegate 启动时挂进来，而不是塞进 init 参数表。
     private(set) var sleepTimer: SleepTimerDriver?
@@ -205,6 +207,7 @@ final class AppContainer {
         self.networkMonitor = networkMonitor
         self.relatedRadio = relatedRadio
         self.playbackRecovery = playbackRecovery
+        self.updateChecker = AppUpdateChecker(networkAllowed: { settings.enableNetwork })
         self.voice = voice
         self.voiceDriver = voiceDriver
     }

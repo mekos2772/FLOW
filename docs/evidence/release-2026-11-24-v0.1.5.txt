@@ -1,0 +1,29 @@
+FLOW 0.1.5 发布记录
+日期：2026-11-24
+范围：音频动态限幅与全曲响度扫描防破音、通用 JS 插件扫码登录与无损音质链路增强、FLOW Voice 两阶段主唱去和声分离与男女对唱八度自适应、设置页手动「检查更新」（GitHub Releases API）。
+版本：0.1.5 (6)（工程 MARKETING_VERSION / CURRENT_PROJECT_VERSION 同步上调）。
+
+1. 门禁
+命令：./Scripts/verify.sh（23:49–23:52）
+结果：Executed 1368 tests, with 16 tests skipped and 0 failures；verify.sh 未报测试进程崩溃/重启
+  architecture-lint: OK；dead-code-scan: OK；Release 构建 0 警告；check-doc-numbers: OK
+  新增回归：AudioEffectsTests（动态峰值限幅器低 THD + 立体声联动 + 坏采样防护、全曲响度扫描与忽略 v1 脏缓存）、
+  ReviewFixRegressionTests（JS 插件无损音质 qualityID/backupUrls、预热静默与晋升上报实际音质）、
+  VoiceAudioDSPAndPackTests（RMVPE 短时掉帧桥接 + 有声段中值滤波、男女交替对唱八度自适应、伴奏与剥离和声混音）、
+  AppUpdateCheckerTests（语义化版本比较、arm64.dmg 识别、拒绝非 GitHub/非 HTTPS 链接、联网开关门控与限流提示，共 6 条）。
+
+2. 安装包
+产物：./Scripts/package-release.sh → dist/FLOW-0.1.5-arm64.dmg（19,308,566 字节，UDZO，hdiutil verify VALID）
+SHA-256：5b9befc33bbdff87af4fb486f750bf650f90039644cafbefabf7cea67c56d4bc
+只读挂载后核对：codesign --verify --deep --strict 通过；CFBundleShortVersionString 0.1.5 / CFBundleVersion 6；
+  arm64；Resources 含 ONNXRuntime-LICENSE.txt（1,073 字节）与 ONNXRuntime-ThirdPartyNotices.txt（334,795 字节）。
+
+3. 未验证
+- 这个安装包没有在本机替换安装，也没有桌面启动冒烟。
+- FLOW Voice 两阶段去和声分离（UVR_MDXNET_KARA_2.onnx）与男女对唱八度自适应：单元测试与 ONNX 管线集成逻辑已验证，但未跑实网自动下载 KARA_2 模型与真实双人对唱长曲人工试听。
+- 设置页「检查更新」：已用 URLProtocol mock 覆盖 6 条回归单测，未在打包应用中实网点击联调 GitHub API。
+- 联网集成测试（verify.sh --live）本次没有跑。
+
+4. 发布
+- GitHub：https://github.com/mekos2772/FLOW （main）
+- Release：https://github.com/mekos2772/FLOW/releases/tag/v0.1.5 ，资产 FLOW-0.1.5-arm64.dmg

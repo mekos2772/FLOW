@@ -27,10 +27,22 @@ struct RVCEngineAdapter: VoiceEngineAdapter, Sendable {
             min: nil,
             max: nil,
             step: nil,
-            options: ["mdx-vocals", "none"],
-            defaultValue: .string("mdx-vocals"),
+            options: ["mdx-lead-vocals", "mdx-vocals", "none"],
+            defaultValue: .string("mdx-lead-vocals"),
             advanced: false,
-            help: "使用 UVR-MDX-NET 分离伴奏后再转换；干声可直接选择 none。"
+            help: "主唱精分先分离人声再剥离和声回填伴奏，减少双人合唱与厚和声哑火；干声可选 none。"
+        ),
+        .init(
+            key: "duet_pitch_adapt",
+            title: "对唱音域自适应",
+            control: .toggle,
+            min: nil,
+            max: nil,
+            step: nil,
+            options: nil,
+            defaultValue: .bool(true),
+            advanced: false,
+            help: "男女交替对唱或跨八度乐句时自动按句对齐音域，减少半段哑火与高音破音；单人独唱不触发。"
         ),
         .init(
             key: "index_rate",

@@ -10,16 +10,18 @@ final class MDXVocalSeparator: @unchecked Sendable {
         let duration: TimeInterval
     }
 
-    private var cachedSession: ORTSession?
-    private var cachedModelPath: String?
-    private var cachedProvider: ORTExecutionProvider?
+    private struct CachedSessionEntry {
+        let modelPath: String
+        let provider: ORTExecutionProvider
+        let session: ORTSession
+    }
+
+    private var cachedSessions: [CachedSessionEntry] = []
     private let lock = NSLock()
 
     func unload() {
         lock.lock()
-        cachedSession = nil
-        cachedModelPath = nil
-        cachedProvider = nil
+        cachedSessions.removeAll()
         lock.unlock()
     }
 
@@ -91,17 +93,20 @@ final class MDXVocalSeparator: @unchecked Sendable {
 
         let totalPadded = paddedL.count
         let clampedOverlap = min(max(overlap, 0.0), 0.75)
-        let step = max(Int((1.0 - clampedOverlap) * Double(chunkSize)), 1)
+        // 严格对齐 UVR / audio-separator：丢弃每块头尾 trim（STFT 卷积截断伪影区），仅在有效中心区 genSize 上步进叠加。
+        let step = max(Int((1.0 - clampedOverlap) * Double(genSize)), 1)
+        let overlapLen = max(0, genSize - step)
 
         var resultL = [Float](repeating: 0, count: totalPadded)
         var resultR = [Float](repeating: 0, count: totalPadded)
         var divider = [Float](repeating: 0, count: totalPadded)
 
         var start = 0
-        let totalSteps = max((totalPadded + step - 1) / step, 1)
+        let maxStart = max(0, totalPadded - 2 * trim)
+        let totalSteps = max((maxStart + step - 1) / step, 1)
         var stepIdx = 0
 
-        while start < totalPadded {
+        while start < maxStart {
             try Task.checkCancellation()
             let end = min(start + chunkSize, totalPadded)
             let actualLen = end - start
@@ -119,7 +124,7 @@ final class MDXVocalSeparator: @unchecked Sendable {
                 dimF: params.dimF
             )
 
-            // 清零最低 3 个频 bin（对齐 MDXSeparator）
+            // 清零输入最低 3 个频 bin（对齐 MDXSeparator）
             var maskedSpec = stftTensor
             let planeStride = params.dimF * stftFrames
             for ch in 0..<4 {
@@ -133,7 +138,7 @@ final class MDXVocalSeparator: @unchecked Sendable {
             }
 
             let specShape: [Int64] = [1, 4, Int64(params.dimF), Int64(stftFrames)]
-            let specPred: [Float]
+            var specPred: [Float]
             if enableDenoise {
                 let posOut = try await session.run(
                     inputs: [inputInfo.name: .float32(data: maskedSpec, shape: specShape)],
@@ -168,6 +173,19 @@ final class MDXVocalSeparator: @unchecked Sendable {
                 specPred = data
             }
 
+            // 同步清零输出频谱最低 3 个频 bin，消除模型偏置带来的次声与直流漂移。
+            if specPred.count >= 4 * planeStride {
+                for ch in 0..<4 {
+                    let base = ch * planeStride
+                    for f in 0..<min(3, params.dimF) {
+                        let rowStart = base + f * stftFrames
+                        for t in 0..<stftFrames {
+                            specPred[rowStart + t] = 0
+                        }
+                    }
+                }
+            }
+
             let inv = try VoiceAudioDSP.mdxISTFT(
                 tensor: specPred,
                 dimF: params.dimF,
@@ -177,12 +195,27 @@ final class MDXVocalSeparator: @unchecked Sendable {
                 targetLength: chunkSize
             )
 
-            let win = clampedOverlap > 0 ? VoiceAudioDSP.hannWindowSymmetric(length: actualLen) : nil
-            for i in 0..<actualLen {
-                let w = win?[i] ?? 1.0
-                resultL[start + i] += inv.left[i] * w
-                resultR[start + i] += inv.right[i] * w
-                divider[start + i] += w
+            // 丢弃头尾 trim 伪影，只在有效中心区 [trim ..< trim + validLen] 内使用 Tukey / Raised-Cosine 交叉淡变叠加。
+            let writeBase = start + trim
+            let validLen = min(genSize, totalPadded - writeBase)
+            if validLen > 0 {
+                let fadeIn = start > 0 ? min(overlapLen, validLen / 2) : 0
+                let isLast = (start + step) >= maxStart || (writeBase + validLen) >= totalPadded
+                let fadeOut = !isLast ? min(overlapLen, validLen / 2) : 0
+                for j in 0..<validLen {
+                    var w: Float = 1.0
+                    if fadeIn > 0, j < fadeIn {
+                        w = 0.5 * (1.0 - cosf(Float.pi * Float(j + 1) / Float(fadeIn + 1)))
+                    } else if fadeOut > 0, j >= validLen - fadeOut {
+                        let rem = validLen - j
+                        w = 0.5 * (1.0 - cosf(Float.pi * Float(rem) / Float(fadeOut + 1)))
+                    }
+                    let srcIdx = trim + j
+                    let dstIdx = writeBase + j
+                    resultL[dstIdx] += inv.left[srcIdx] * w
+                    resultR[dstIdx] += inv.right[srcIdx] * w
+                    divider[dstIdx] += w
+                }
             }
 
             stepIdx += 1
@@ -227,8 +260,10 @@ final class MDXVocalSeparator: @unchecked Sendable {
     private func loadSessionIfNeeded(modelURL: URL, provider: ORTExecutionProvider) throws -> ORTSession {
         lock.lock()
         defer { lock.unlock() }
-        if let cachedSession, cachedModelPath == modelURL.path, cachedProvider == provider {
-            return cachedSession
+        if let idx = cachedSessions.firstIndex(where: { $0.modelPath == modelURL.path && $0.provider == provider }) {
+            let entry = cachedSessions.remove(at: idx)
+            cachedSessions.append(entry)
+            return entry.session
         }
         let session = try ORTSession(
             modelURL: modelURL,
@@ -236,9 +271,11 @@ final class MDXVocalSeparator: @unchecked Sendable {
             intraOpThreads: 4,
             allowCPUFallback: true
         )
-        cachedSession = session
-        cachedModelPath = modelURL.path
-        cachedProvider = provider
+        cachedSessions.append(CachedSessionEntry(modelPath: modelURL.path, provider: provider, session: session))
+        // 两阶段分离（Voc_FT + KARA_2）最多保活 2 个 MDX 会话，避免交替重载又控制内存。
+        if cachedSessions.count > 2 {
+            cachedSessions.removeFirst(cachedSessions.count - 2)
+        }
         return session
     }
 }

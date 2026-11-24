@@ -18241,6 +18241,319 @@
           }
         }
       }
+    },
+    "配置凭据": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure Credentials"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置凭据"
+          }
+        }
+      }
+    },
+    "该插件未提供扫码登录，可在音源参数中填写登录凭据（Cookie），或导入支持扫码登录的音源插件。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This plugin does not include QR sign-in. You can enter login credentials (Cookie) in plugin variables, or import a source plugin with QR sign-in."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该插件未提供扫码登录，可在音源参数中填写登录凭据（Cookie），或导入支持扫码登录的音源插件。"
+          }
+        }
+      }
+    },
+    "将优先向插件「%@」请求「%@」音轨；需要对应账号权益且曲目提供无损流，不可用时自动降级。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Will prefer requesting “%2$@” audio from plugin “%1$@”. Requires matching account entitlement and lossless stream availability; falls back automatically otherwise."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将优先向插件「%@」请求「%@」音轨；需要对应账号权益且曲目提供无损流，不可用时自动降级。"
+          }
+        }
+      }
+    },
+    "MDX 主唱精分（去和声）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDX Lead Vocals (Remove Harmonies)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDX 主唱精分（去和声）"
+          }
+        }
+      }
+    },
+    "MDX 标准人声分离": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDX Standard Vocal Separation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDX 标准人声分离"
+          }
+        }
+      }
+    },
+    "直通原曲（不分离）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Audio (No Separation)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直通原曲（不分离）"
+          }
+        }
+      }
+    },
+    "正在下载主唱去和声模型": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading lead vocal separation model"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载主唱去和声模型"
+          }
+        }
+      }
+    },
+    "主唱去和声模型（UVR_MDXNET_KARA_2.onnx）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lead Vocal / Karaoke Model (UVR_MDXNET_KARA_2.onnx)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主唱去和声模型（UVR_MDXNET_KARA_2.onnx）"
+          }
+        }
+      }
+    },
+    "对唱音域自适应": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duet Pitch Range Adaptation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对唱音域自适应"
+          }
+        }
+      }
+    },
+    "当前已关闭联网，请在隐私设置中开启「允许联网」后再检查更新。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Networking is currently off. Enable \"Allow Networking\" in Privacy settings before checking for updates."
+          }
+        }
+      }
+    },
+    "更新地址无效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid update URL"
+          }
+        }
+      }
+    },
+    "未收到有效的更新响应": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Did not receive a valid update response"
+          }
+        }
+      }
+    },
+    "GitHub 接口请求受限，请稍后再试或直接前往发布页查看。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub API rate limit reached. Please try again later or open the releases page directly."
+          }
+        }
+      }
+    },
+    "检查更新失败（HTTP %lld）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update check failed (HTTP %lld)"
+          }
+        }
+      }
+    },
+    "无法解析版本号（%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to parse version number (%@)"
+          }
+        }
+      }
+    },
+    "更新地址未通过安全校验": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update URL failed security validation"
+          }
+        }
+      }
+    },
+    "更新服务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Service"
+          }
+        }
+      }
+    },
+    "软件更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Software Update"
+          }
+        }
+      }
+    },
+    "手动向 GitHub Releases 查询新版本，仅在点击时联网。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check GitHub Releases manually for new versions. Connects only when clicked."
+          }
+        }
+      }
+    },
+    "检查中…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        }
+      }
+    },
+    "检查更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates"
+          }
+        }
+      }
+    },
+    "当前已是最新版本（v%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're up to date (v%@)"
+          }
+        }
+      }
+    },
+    "发现新版本 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New version available: %@"
+          }
+        }
+      }
+    },
+    "下载安装包": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Installer"
+          }
+        }
+      }
+    },
+    "前往发布页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Releases Page"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

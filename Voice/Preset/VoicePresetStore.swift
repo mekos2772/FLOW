@@ -13,7 +13,8 @@ struct VoiceProcessingPreset: Codable, Hashable, Sendable {
             id: "clean",
             displayName: "干净人声",
             parameters: [
-                "separation_model": .string("mdx-vocals"),
+                "separation_model": .string("mdx-lead-vocals"),
+                "duet_pitch_adapt": .bool(true),
                 "index_rate": .double(0.75),
                 "filter_radius": .int(3),
                 "protect": .double(0.33),
@@ -26,7 +27,8 @@ struct VoiceProcessingPreset: Codable, Hashable, Sendable {
             id: "stage",
             displayName: "高精降噪",
             parameters: [
-                "separation_model": .string("mdx-vocals"),
+                "separation_model": .string("mdx-lead-vocals"),
+                "duet_pitch_adapt": .bool(true),
                 "index_rate": .double(0.55),
                 "filter_radius": .int(4),
                 "protect": .double(0.45),
@@ -40,6 +42,7 @@ struct VoiceProcessingPreset: Codable, Hashable, Sendable {
             displayName: "直通干声",
             parameters: [
                 "separation_model": .string("none"),
+                "duet_pitch_adapt": .bool(false),
                 "index_rate": .double(0.8),
                 "filter_radius": .int(0),
                 "protect": .double(0.25),

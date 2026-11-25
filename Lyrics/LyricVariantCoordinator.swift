@@ -113,6 +113,10 @@ final class LyricVariantCoordinator {
         if let parsedArtist = parsed.artist?.trimmingCharacters(in: .whitespacesAndNewlines),
            !parsedArtist.isEmpty {
             artist = parsedArtist
+        } else if ExternalLyricsAggregator.isImplicitArtistUntrusted(for: track) {
+            // 视频投稿源（如 bilibili / bilibili-fetch）标题未标明歌手时，track.artist 往往是 UP 主，
+            // 预填进歌手栏会干扰 AMLL/LRCLIB 的默认检索。
+            artist = ""
         } else {
             artist = track.artist.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -129,7 +133,10 @@ final class LyricVariantCoordinator {
             title: suggested.keyword, artist: artistArg, limit: 6, allowNetwork: canUseNetwork
         )
         async let lrcTask: [LRCLIBSource.Candidate] = canUseNetwork
-            ? searchLRCLIB(keyword: suggested.keyword, artist: artistArg, duration: track.duration)
+            ? searchLRCLIB(keyword: suggested.keyword,
+                           artist: artistArg,
+                           workHint: LyricQueryNormalizer.workHints(track.title).first,
+                           duration: track.duration)
             : []
 
         let amll = await amllTask.map(LyricVariantCandidate.fromAMLL)
@@ -397,14 +404,40 @@ final class LyricVariantCoordinator {
         return await amllProvider.search(title: rawKeyword, artist: nil, limit: limit, allowNetwork: allowNetwork)
     }
 
-    private func searchLRCLIB(keyword: String, artist: String?,
+    private func searchLRCLIB(keyword: String,
+                              artist: String?,
+                              workHint: String? = nil,
                               duration: TimeInterval?) async -> [LRCLIBSource.Candidate] {
         guard !keyword.isEmpty else { return [] }
-        let fetched = (try? await lrclibSource.search(title: keyword, artist: artist)) ?? []
-        let fallback = (fetched.isEmpty && artist != nil)
-            ? ((try? await lrclibSource.search(title: keyword, artist: nil)) ?? [])
-            : []
-        return LRCLIBSource.rankManual(fetched + fallback, query: keyword, artist: artist,
+        var collected = (try? await lrclibSource.search(title: keyword, artist: artist)) ?? []
+        if let artist, !artist.isEmpty {
+            for alias in LyricQueryNormalizer.MatchContext.aliases(for: artist) where collected.count < 6 {
+                if let aliasHits = try? await lrclibSource.search(title: keyword, artist: alias) {
+                    collected.append(contentsOf: aliasHits)
+                }
+            }
+        }
+        if let workHint, !workHint.isEmpty, collected.count < 6 {
+            if let albumHits = try? await lrclibSource.search(title: keyword, artist: nil, album: workHint) {
+                collected.append(contentsOf: albumHits)
+            }
+        }
+        if collected.isEmpty, artist != nil {
+            collected = (try? await lrclibSource.search(title: keyword, artist: nil)) ?? []
+        }
+        if collected.isEmpty {
+            let trad = TextNormalizer.traditional(keyword)
+            if trad != keyword {
+                collected = (try? await lrclibSource.search(title: trad, artist: nil)) ?? []
+            }
+        }
+        if collected.isEmpty {
+            let q = [keyword, artist ?? workHint].compactMap { $0 }.joined(separator: " ")
+            if let qHits = try? await lrclibSource.search(keyword: q) {
+                collected.append(contentsOf: qHits)
+            }
+        }
+        return LRCLIBSource.rankManual(collected, query: keyword, artist: artist,
                                        duration: duration, limit: 8)
     }
 

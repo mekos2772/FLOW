@@ -153,4 +153,336 @@ final class LyricTitleMatchingTests: XCTestCase {
         XCTAssertEqual(found.first?.trackName, "珊瑚海")
         XCTAssertGreaterThan(FakeBiliTransport.requested.count, 1)
     }
+
+    // MARK: - 书名号歌手提取、别名、单字歌名、视频源 UP 主隔离与繁体/镜像兜底
+
+    func testExtractsArtistNextToBookTitleWithoutPollutingTitleCandidates() {
+        let studio = LyricQueryNormalizer.parseTitle("孙燕姿《逆光》百万豪装录音棚")
+        XCTAssertEqual(studio.title, "逆光")
+        XCTAssertEqual(studio.artist, "孙燕姿")
+
+        let coral = LyricQueryNormalizer.parseTitle("【4K顶级修复】《珊瑚海》—周杰伦 梁心颐 无损音质")
+        XCTAssertEqual(coral.title, "珊瑚海")
+        XCTAssertEqual(coral.artist, "周杰伦")
+
+        let english = LyricQueryNormalizer.parseTitle("《Anti-Hero》-Taylor Swift【Official Audio】")
+        XCTAssertEqual(english.title, "Anti-Hero")
+        XCTAssertEqual(english.artist, "Taylor Swift")
+
+        let phraseBefore = LyricQueryNormalizer.parseTitle("在专业录音棚听《珊瑚海》 - 周杰伦")
+        XCTAssertEqual(phraseBefore.title, "珊瑚海")
+        XCTAssertEqual(phraseBefore.artist, "周杰伦")
+    }
+
+    func testSingleCharacterBookTitleIsPreservedAndMatched() async throws {
+        let parsed = LyricQueryNormalizer.parseTitle("陈粒《光》官方MV")
+        XCTAssertEqual(parsed.title, "光")
+        XCTAssertEqual(parsed.artist, "陈粒")
+
+        FakeBiliTransport.routes = [
+            route(trackName: "光", [candidate(1, "光", "陈粒", duration: 195)]),
+            ("lrclib.net", [[String: Any]]()),
+        ]
+        let found = try await aggregator().searchRelaxed(title: "陈粒《光》官方MV", artist: "UP主", duration: 195)
+        XCTAssertEqual(found.first?.trackName, "光")
+        XCTAssertEqual(found.first?.artistName, "陈粒")
+    }
+
+    func testMatchContextRecognizesChineseEnglishArtistAliases() {
+        let sun = LyricQueryNormalizer.MatchContext("孙燕姿《逆光》百万豪装录音棚", "LRS-LeoFM")
+        XCTAssertTrue(sun.mentions(artist: "Stefanie Sun"))
+        let jay = LyricQueryNormalizer.MatchContext("周杰伦《七里香》", "UP主")
+        XCTAssertTrue(jay.mentions(artist: "Jay Chou"))
+        let jj = LyricQueryNormalizer.MatchContext("林俊杰《主角》", "UP主")
+        XCTAssertTrue(jj.mentions(artist: "JJ Lin"))
+    }
+
+    @MainActor
+    func testBilibiliFetchUploaderDoesNotBlockAMLLMatchForSameTitledSongs() async throws {
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flow-amll-bili-fetch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+
+        let indexJSONL = [
+            #"{"metadata":[["musicName",["逆光"]],["artists",["其他歌手"]]],"rawLyricFile":"other.ttml"}"#,
+            #"{"metadata":[["musicName",["逆光"]],["artists",["Stefanie Sun"]]],"rawLyricFile":"sun.ttml"}"#,
+        ].joined(separator: "\n")
+        try Data(indexJSONL.utf8).write(to: cacheDir.appendingPathComponent("amll-index.jsonl"))
+
+        let sampleTTML = """
+        <tt xmlns="http://www.w3.org/ns/ttml"><body><div>
+        <p begin="00:01.000" end="00:04.000"><span begin="00:01.000">也许我一直害怕有答案</span></p>
+        </div></body></tt>
+        """
+        // 模拟 raw.githubusercontent.com 不可达，自动切 jsDelivr 镜像成功拉取 TTML。
+        FakeBiliTransport.routes = [
+            ("cdn.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/raw-lyrics/sun.ttml", Data(sampleTTML.utf8)),
+        ]
+        let amll = AMLLLyricsProvider(session: FakeBiliTransport.makeSession(), allowsNetwork: true, cacheDirectory: cacheDir)
+        let agg = ExternalLyricsAggregator(
+            cache: LyricDocumentCache(directory: cacheDir.appendingPathComponent("lrc", isDirectory: true)),
+            wordLevelLyrics: amll,
+            lrclib: LRCLIBSource(session: FakeBiliTransport.makeSession())
+        )
+        let track = Track(
+            sourceID: SourceID(rawValue: "js-bilibili-fetch"),
+            externalID: "BV1sun00001",
+            title: "孙燕姿《逆光》百万豪装录音棚",
+            artist: "LRS-LeoFM",
+            duration: 295
+        )
+        let doc = try await agg.resolve(for: track, allowNetwork: true)
+        XCTAssertEqual(doc?.lines.first?.text, "也许我一直害怕有答案")
+    }
+
+    @MainActor
+    func testSuggestedQueryOmitsUntrustedVideoUploaderWhenTitleHasNoArtist() {
+        let store = LyricBindingStore(directory: nil)
+        let coordinator = LyricVariantCoordinator(bindingStore: store)
+        let withoutArtist = Track(
+            sourceID: SourceID(rawValue: "js-bilibili-fetch"),
+            externalID: "BV1x",
+            title: "《逆光》无损纯享版",
+            artist: "LRS-LeoFM",
+            duration: 295
+        )
+        let suggested1 = coordinator.suggestedQuery(for: withoutArtist)
+        XCTAssertEqual(suggested1.keyword, "逆光")
+        XCTAssertEqual(suggested1.artist, "")
+
+        let withArtist = Track(
+            sourceID: SourceID(rawValue: "js-bilibili-fetch"),
+            externalID: "BV1y",
+            title: "孙燕姿《逆光》百万豪装录音棚",
+            artist: "LRS-LeoFM",
+            duration: 295
+        )
+        let suggested2 = coordinator.suggestedQuery(for: withArtist)
+        XCTAssertEqual(suggested2.keyword, "逆光")
+        XCTAssertEqual(suggested2.artist, "孙燕姿")
+    }
+
+    func testTraditionalFallbackFindsTraditionalLRCLIBEntryWhenSimplifiedReturnsEmpty() async throws {
+        FakeBiliTransport.routes = [
+            route(trackName: "說好不哭", [candidate(10, "說好不哭", "Jay Chou", duration: 222)]),
+            ("lrclib.net", [[String: Any]]()),
+        ]
+        let found = try await aggregator().searchRelaxed(
+            title: "周杰伦《说好不哭》官方MV",
+            artist: "UP主",
+            duration: 262 // MV 前奏多 40 秒，因歌名精确且歌手别名命中而放行
+        )
+        XCTAssertEqual(found.first?.id, 10)
+    }
+
+    func testNaturalLanguagePrefixAndWorkReferenceBookTitleParsing() {
+        let mario = "在录音棚听马里奥的《主角》（《斗破苍穹》动画第四季片尾曲）"
+        let parsedMario = LyricQueryNormalizer.parseTitle(mario)
+        XCTAssertEqual(parsedMario.title, "主角")
+        XCTAssertEqual(parsedMario.artist, "马里奥")
+        XCTAssertEqual(LyricQueryNormalizer.titleCandidates(mario).map(\.title), ["主角"],
+                       "括号里的动画作品名《斗破苍穹》不应混入歌名候选")
+        XCTAssertEqual(LyricQueryNormalizer.workHints(mario), ["斗破苍穹"])
+
+        let ostOrder = "《斗破苍穹》动画第四季主题曲《主角》 - 马里奥"
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle(ostOrder).title, "主角")
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle(ostOrder).artist, "马里奥")
+        XCTAssertEqual(LyricQueryNormalizer.workHints(ostOrder), ["斗破苍穹"])
+
+        let movieOST = "电影《你的名字》主题曲《前前前世》RADWIMPS"
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle(movieOST).title, "前前前世")
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle(movieOST).artist, "RADWIMPS")
+
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle("戴上耳机听周杰伦的《晴天》").artist, "周杰伦")
+        XCTAssertEqual(LyricQueryNormalizer.parseTitle("单曲循环陈奕迅的《孤勇者》").artist, "陈奕迅")
+    }
+
+    func testDifferentArtistSameShortTitleIsRejectedInsteadOfShowingWrongLyrics() async throws {
+        // 复现真实截图：标题写明马里奥的《主角》，LRCLIB 只返回别歌手的同名《主角》，不能强行错配。
+        FakeBiliTransport.routes = [
+            route(trackName: "主角", [
+                [
+                    "id": 9001,
+                    "trackName": "主角",
+                    "artistName": "其他歌手",
+                    "albumName": "某专辑",
+                    "duration": 250.0,
+                    "syncedLyrics": "[01:01.00]对白里的深刻 永远我都记得",
+                ]
+            ]),
+            ("lrclib.net", [[String: Any]]()),
+        ]
+        let found = try await aggregator().searchRelaxed(
+            title: "在录音棚听马里奥的《主角》（《斗破苍穹》动画第四季主题曲）",
+            artist: "ISTE-音乐小铺",
+            duration: 251
+        )
+        XCTAssertTrue(found.isEmpty, "明确歌手为马里奥时，不能把其他歌手的同名《主角》错配上来")
+    }
+
+    func testAmbiguousLRCLIBSameTitleWithoutArtistEvidenceIsRejected() {
+        let candidates = [
+            LRCLIBSource.Candidate(id: 1, trackName: "主角", artistName: "歌手甲", albumName: "", duration: 250, syncedLyrics: "[00:01.00]甲"),
+            LRCLIBSource.Candidate(id: 2, trackName: "主角", artistName: "歌手乙", albumName: "", duration: 251, syncedLyrics: "[00:01.00]乙"),
+        ]
+        let context = LyricQueryNormalizer.MatchContext("《主角》纯享版", "某UP主")
+        let ranked = LRCLIBSource.rank(candidates, title: "主角", artist: nil, duration: 251, context: context)
+        XCTAssertTrue(ranked.isEmpty, "曲库存在多位不同歌手的同名歌且无歌手旁证时，不能盲选")
+    }
+
+    func testAlbumWorkContextAndStaleCacheEvictionMatchCorrectOSTLyrics() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flow-ost-cache-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let cache = LyricDocumentCache(directory: dir)
+        let track = Track(
+            sourceID: SourceID(rawValue: "js-bilibili-fetch"),
+            externalID: "BV1mario0001",
+            title: "在录音棚听马里奥的《主角》（《斗破苍穹》动画第四季主题曲）",
+            artist: "ISTE-音乐小铺",
+            duration: 251
+        )
+        // 预先写入一份历史错配的旧缓存（带不同歌手 [ar:]）。
+        cache.store(
+            identity: TrackIdentity.storageKey(track.identity),
+            title: "主角",
+            lrc: "[ar:其他歌手]\n[01:01.00]对白里的深刻 永远我都记得"
+        )
+
+        FakeBiliTransport.routes = [
+            route(trackName: "主角", [
+                [
+                    "id": 9001,
+                    "trackName": "主角",
+                    "artistName": "其他歌手",
+                    "albumName": "别的专辑",
+                    "duration": 250.0,
+                    "syncedLyrics": "[01:01.00]对白里的深刻 永远我都记得",
+                ],
+                [
+                    "id": 9002,
+                    "trackName": "主角",
+                    "artistName": "马里奥",
+                    "albumName": "斗破苍穹动画第四季原声带",
+                    "duration": 251.0,
+                    "syncedLyrics": "[00:10.00]我才是自己的主角",
+                ],
+            ]),
+            ("lrclib.net", [[String: Any]]()),
+        ]
+
+        let agg = ExternalLyricsAggregator(
+            cache: cache,
+            wordLevelLyrics: nil,
+            lrclib: LRCLIBSource(session: FakeBiliTransport.makeSession())
+        )
+        let doc = try await agg.resolve(for: track, allowNetwork: true)
+        XCTAssertEqual(doc?.lines.first?.text, "我才是自己的主角", "应淘汰带矛盾歌手的旧缓存并命中马里奥版本")
+    }
+
+    func testParentheticalWorkBookTitleDoesNotSwallowUnbracketedSongTitle() {
+        let cases: [(raw: String, expectedTitle: String, expectedArtist: String)] = [
+            ("马里奥 - 主角（《斗破苍穹》动画第四季片尾曲）", "主角", "马里奥"),
+            ("陈奕迅 - 孤勇者（《英雄联盟：双城之战》主题曲）", "孤勇者", "陈奕迅"),
+            ("周深 - 大鱼（动画电影《大鱼海棠》印象曲）", "大鱼", "周深"),
+        ]
+        for item in cases {
+            let parsed = LyricQueryNormalizer.parseTitle(item.raw)
+            XCTAssertEqual(parsed.title, item.expectedTitle, item.raw)
+            XCTAssertEqual(parsed.artist, item.expectedArtist, item.raw)
+        }
+    }
+
+    func testHyphenatedOSTSubtitleAndInstrumentalPenaltyInLRCLIBRank() {
+        let ost = LRCLIBSource.Candidate(
+            id: 10363218,
+            trackName: "明天 - 《斗破苍穹》决战云岚片尾曲",
+            artistName: "朱心怡",
+            albumName: "明天",
+            duration: 238,
+            syncedLyrics: "[00:10.00]第一句\n[00:15.00]第二句"
+        )
+        let context = LyricQueryNormalizer.MatchContext("朱心怡《明天》（《斗破苍穹》决战云岚片尾曲）", "UP主")
+        let ostRanked = LRCLIBSource.rank([ost], title: "明天", artist: "朱心怡", duration: 238, context: context, artistIsReliable: true)
+        XCTAssertEqual(ostRanked.first?.id, 10363218, "带 `- 《作品名》片尾曲` 副标题的官方歌名应精确匹配")
+
+        let instPlaceholder = LRCLIBSource.Candidate(
+            id: 30485747,
+            trackName: "逆光",
+            artistName: "孙燕姿",
+            albumName: "伴奏",
+            duration: 294,
+            syncedLyrics: "[00:00.00]纯音乐，请欣赏"
+        )
+        let fullLyrics = (1...10).map { "[\(String(format: "00:%02d.00", $0 * 5))]第\($0)句" }.joined(separator: "\n")
+        let realSong = LRCLIBSource.Candidate(
+            id: 29893399,
+            trackName: "逆光",
+            artistName: "孙燕姿",
+            albumName: "逆光",
+            duration: 294,
+            syncedLyrics: fullLyrics
+        )
+        let sunContext = LyricQueryNormalizer.MatchContext("孙燕姿《逆光》百万豪装录音棚", "LRS-LeoFM")
+        let sunRanked = LRCLIBSource.rank([instPlaceholder, realSong], title: "逆光", artist: "孙燕姿", duration: 295, context: sunContext, artistIsReliable: true)
+        XCTAssertEqual(sunRanked.map(\.id), [29893399], "纯音乐占位和伴奏条目不应击败完整人声歌词")
+    }
+
+    func testCrossSourceLyricProviderFallbackFetchesVerifiedLyricsWhenAMLLAndLRCLIBMiss() async {
+        struct PeerLyricsProvider: PlaybackSourceProvider {
+            let descriptor = SourceDescriptor(
+                id: SourceID(rawValue: "js-peer-lyrics"),
+                displayName: "PeerLyrics",
+                kind: .jsPlugin,
+                requiresNetwork: true,
+                supportsSearch: true,
+                supportsLyrics: true
+            )
+            let items: [Track]
+            let lyricsByExternalID: [String: LyricsDocument]
+
+            func search(_ request: SearchRequest) async throws -> [Track] { items }
+            func makeSession(for track: Track) async throws -> any PlaybackSession { throw PlaybackError.sourceUnavailable }
+            func refresh(_ session: any PlaybackSession) async throws -> any PlaybackSession { session }
+            func artwork(for reference: ArtworkReference) async throws -> Data? { nil }
+            func lyrics(for track: Track) async throws -> LyricsDocument? { lyricsByExternalID[track.externalID] }
+            func map(_ error: any Error) -> PlaybackError { defaultMap(error) }
+        }
+
+        let registry = SourceRegistry()
+        let peerID = SourceID(rawValue: "js-peer-lyrics")
+        let wrongTrack = Track(sourceID: peerID, externalID: "p-wrong", title: "主角", artist: "王诗安", duration: 251)
+        let rightTrack = Track(sourceID: peerID, externalID: "p-right", title: "主角 - 《斗破苍穹》第四季片尾曲", artist: "马里奥", duration: 251)
+        let rightDoc = LyricsDocument(
+            trackIdentity: rightTrack.identity,
+            lines: [LyricLine(start: 10, text: "马里奥正版歌词")],
+            source: .external,
+            synchronization: .synced
+        )
+        let wrongDoc = LyricsDocument(
+            trackIdentity: wrongTrack.identity,
+            lines: [LyricLine(start: 10, text: "王诗安错误歌词")],
+            source: .external,
+            synchronization: .synced
+        )
+        registry.register(PeerLyricsProvider(
+            items: [wrongTrack, rightTrack],
+            lyricsByExternalID: ["p-wrong": wrongDoc, "p-right": rightDoc]
+        ))
+
+        let loader = SourceAwareLyricsLoader(registry: registry, externalAggregator: nil, networkAllowed: { true })
+        let biliTrack = Track(
+            sourceID: SourceID(rawValue: "js-bilibili-fetch"),
+            externalID: "BV1mario999",
+            title: "在录音棚听马里奥的《主角》（《斗破苍穹》动画第四季片尾曲）",
+            artist: "ISTE-音乐小铺",
+            duration: 251
+        )
+        let loaded = await loader.loadLyrics(for: biliTrack)
+        XCTAssertEqual(loaded?.lines.first?.text, "马里奥正版歌词")
+        XCTAssertEqual(loaded?.trackIdentity, biliTrack.identity)
+    }
 }

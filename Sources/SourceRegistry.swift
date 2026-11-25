@@ -36,6 +36,12 @@ final class SourceRegistry: @unchecked Sendable {
         return registrationOrder.compactMap { providers[$0]?.descriptor }
     }
 
+    var allProviders: [any PlaybackSourceProvider] {
+        lock.lock()
+        defer { lock.unlock() }
+        return registrationOrder.compactMap { providers[$0] }
+    }
+
     var isEmpty: Bool {
         lock.lock()
         defer { lock.unlock() }

@@ -77,11 +77,12 @@ final class AMLLLyricsProvider {
                 artist: String?,
                 artistIsReliable: Bool = false,
                 duration: TimeInterval = 0,
-                allowNetwork: Bool = true) async -> [LyricLine]? {
+                allowNetwork: Bool = true,
+                context: LyricQueryNormalizer.MatchContext? = nil) async -> [LyricLine]? {
         let effectiveNetwork = allowsNetwork && allowNetwork
         let index = await ensureIndex(allowNetwork: effectiveNetwork)
         guard !index.entries.isEmpty,
-              let match = index.match(title: title, artist: artist, artistIsReliable: artistIsReliable),
+              let match = index.match(title: title, artist: artist, artistIsReliable: artistIsReliable, context: context),
               let loaded = await resolveTTML(relativePath: match.entry.file, effectiveNetwork: effectiveNetwork) else {
             return nil
         }
@@ -232,12 +233,24 @@ final class AMLLLyricsProvider {
     }
 
     private func fetch(_ url: URL) async throws -> Data {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = NetworkTimeouts.lyricsIndex
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
+        let candidates = SourceDomainPolicy.rawGitHubMirrorCandidates(for: url)
+        var lastError: any Error = URLError(.badServerResponse)
+        for candidate in candidates {
+            try Task.checkCancellation()
+            var request = URLRequest(url: candidate)
+            request.timeoutInterval = NetworkTimeouts.lyricsIndex
+            do {
+                let (data, response) = try await session.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty {
+                    return data
+                }
+                lastError = URLError(.badServerResponse)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
         }
-        return data
+        throw lastError
     }
 }

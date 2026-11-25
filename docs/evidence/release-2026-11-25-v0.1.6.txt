@@ -1,0 +1,30 @@
+FLOW 0.1.6 发布记录
+日期：2026-11-25
+范围：视频站音源搜歌智能过滤与权威曲库交叉校准（零相关/AI 翻唱降权、正向音乐证据优先与热门歌手定向补搜）、歌词全链路精准匹配升级（自然语言与作品出处书名号分离、高频中英文艺名互认、`- 副标题` 规范化、短歌名歧义防错配、伴奏与空壳歌词过滤、AMLL jsDelivr 镜像兜底、跨源歌词插件协同与错配缓存自动淘汰）。
+版本：0.1.6 (7)（工程 MARKETING_VERSION / CURRENT_PROJECT_VERSION 同步上调）。
+
+1. 门禁
+命令：./Scripts/verify.sh（2026-11-25）
+结果：Executed 1393 tests, with 17 tests skipped and 0 failures；verify.sh 未报测试进程崩溃/重启
+  architecture-lint: OK；dead-code-scan: OK；Release 构建 0 警告；check-doc-numbers: OK
+  新增回归：SearchResultFilterTests（全站游戏/影视/科普噪声剔除与自动音乐补搜、无黑名单词泛生活视频清退、零相关拆字翻唱清退、原唱高于 AI 翻唱、多词检索排序，共 7 条）、
+  MusicCatalogResolverTests（Apple iTunes 公开曲库繁转简解析、无标点口水话标题双向反向识别、已导入正规音乐插件目录驱动视频源定向补搜、口水话标题靠目录解锁歌词，共 4 条）、
+  LyricTitleMatchingTests（单字歌名、自然语言书名号与括号作品出处区分、高频中英文歌手别名、`- 副标题` 规范化、可靠歌手不匹配与同名歧义防错配、伴奏重罚、错配缓存自动淘汰等扩充回归）。
+
+2. 实网抽测（发布前专项）
+- 6 组通用词真实视频源搜歌（主角 / 十年 / 演员 / 起风了 / 海阔天空 / 马里奥 主角）前 5 条 30/30 全部为真歌，0 条游戏/影视解说/科普/零相关翻唱；
+- 15 首高难复杂标题（录音棚、花体+引号文案、自然语言+作品书名号、单字歌名、繁简+英文艺名、日文引号、无标点口水话、LRCLIB 带 `- 副标题`、粤语现场等）真实联网歌词匹配 15/15 精准命中，0 错配。
+
+3. 安装包
+产物：./Scripts/package-release.sh → dist/FLOW-0.1.6-arm64.dmg（19,449,673 字节，UDZO，hdiutil verify VALID）
+SHA-256：4f4469b5f7109b4aa1bed7815bc0b0d3508554527482a6c7c8afb34eafbccd87
+只读挂载后核对：codesign --verify --deep --strict 通过；CFBundleShortVersionString 0.1.6 / CFBundleVersion 7；
+  arm64；Resources 含 ONNXRuntime-LICENSE.txt（1,073 字节）与 ONNXRuntime-ThirdPartyNotices.txt（334,795 字节）。
+
+4. 未验证
+- 这个安装包没有在本机替换安装，也没有桌面启动冒烟。
+- `verify.sh --live` 全量联网集成套件未在本次统一重跑（但已完成 6 组真实搜歌与 15 首高难歌词匹配实网抽测）。
+
+5. 发布
+- GitHub：https://github.com/mekos2772/FLOW （main）
+- Release：https://github.com/mekos2772/FLOW/releases/tag/v0.1.6 ，资产 FLOW-0.1.6-arm64.dmg

@@ -276,9 +276,15 @@ final class SourceManager: OfflineAudioResolving {
         let shouldAggregate = aggregate ?? aggregateSearchEnabled
         let candidates: [ManagedSource]
         if shouldAggregate {
-            candidates = browsableSources.filter {
+            let searchable = browsableSources.filter {
                 $0.descriptor.supportsSearch && (!$0.descriptor.requiresNetwork || isNetworkEnabled)
             }
+            // 聚合搜歌时，若有可播放音源，则跳过仅提供目录/歌词辅助的纯元数据插件（仍供目录校准与跨源配词使用）。
+            let playable = searchable.filter { entry in
+                guard let js = entry.provider as? JSPluginSource else { return true }
+                return js.manifest.capabilities.hasGetMediaSource || js.manifest.capabilities.isLXScript
+            }
+            candidates = playable.isEmpty ? searchable : playable
         } else if let active = activeBrowseSource, active.descriptor.supportsSearch {
             if active.descriptor.requiresNetwork && !isNetworkEnabled {
                 return try await searchOfflineFallback(keyword: trimmed, preferredSource: active)
@@ -331,9 +337,10 @@ final class SourceManager: OfflineAudioResolving {
                 for track in batch where seen.insert(track.identity).inserted {
                     merged.append(track)
                 }
-                progress?(TrackListBatch(tracks: merged, checked: merged.count, total: merged.count))
+                let ranked = SearchResultFilter.rankAggregated(merged, query: trimmed)
+                progress?(TrackListBatch(tracks: ranked, checked: ranked.count, total: ranked.count))
             }
-            return merged
+            return SearchResultFilter.rankAggregated(merged, query: trimmed)
         }
     }
 

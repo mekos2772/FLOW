@@ -703,6 +703,7 @@ final class JSPluginSource:
     private let audioCache: MediaAudioCache
     private let streamingAssetBuilder: StreamingAssetBuilder?
     private let hlsAssetBuilder: HLSAssetBuilder?
+    private let catalogResolver: MusicCatalogResolver
     private let lock = NSLock()
     private var preferredQuality: AudioQualityTier = .auto
     private var lastActualQuality: String?
@@ -717,7 +718,8 @@ final class JSPluginSource:
          networkAllowed: @escaping @Sendable () -> Bool = { true },
          audioCache: MediaAudioCache = .shared,
          streamingAssetBuilder: StreamingAssetBuilder? = nil,
-         hlsAssetBuilder: HLSAssetBuilder? = nil) throws {
+         hlsAssetBuilder: HLSAssetBuilder? = nil,
+         catalogResolver: MusicCatalogResolver = .shared) throws {
         let runtime = try JSPluginRuntime(
             scriptSource: scriptSource,
             fallbackID: fallbackID,
@@ -732,6 +734,7 @@ final class JSPluginSource:
         self.audioCache = audioCache
         self.streamingAssetBuilder = streamingAssetBuilder
         self.hlsAssetBuilder = hlsAssetBuilder
+        self.catalogResolver = catalogResolver
     }
 
     var descriptor: SourceDescriptor {
@@ -780,8 +783,59 @@ final class JSPluginSource:
         let searchType = manifest.capabilities.supportedSearchTypes.contains("music") || manifest.capabilities.supportedSearchTypes.isEmpty
             ? "music"
             : (manifest.capabilities.supportedSearchTypes.first ?? "music")
+        let isVideoSource = SearchResultFilter.isLikelyVideoSource(
+            sourceID: manifest.sourceID,
+            displayName: manifest.displayName,
+            allowedDomains: manifest.allowedDomains
+        )
+
+        // 视频投稿类源在首页搜索时并发拉取权威歌曲目录（优先已导入的正规音乐插件如 QQ 音乐，兜底 iTunes 公开曲库），
+        // 零阻塞完成交叉验证与热门歌手定向补搜。
+        async let catalogTask: [MusicCatalogEntry] = (isVideoSource && page == 1)
+            ? catalogResolver.lookup(
+                query: request.query,
+                excluding: manifest.sourceID,
+                limit: 10,
+                allowNetwork: networkAllowed()
+            )
+            : []
+
         let raw = try await runtime.call("search", args: [request.query, page, searchType])
-        return parseTrackList(from: raw)
+        let initial = parseTrackList(from: raw)
+        let catalogEntries = await catalogTask
+
+        let initialAssessment = SearchResultFilter.assess(
+            initial,
+            query: request.query,
+            isVideoPlatformSource: isVideoSource,
+            catalogEntries: catalogEntries
+        )
+        guard page == 1, initialAssessment.needsMusicIntentSupplement else {
+            return initialAssessment.refined
+        }
+
+        var combined = initial
+        for supplement in SearchResultFilter.supplementQueries(for: request.query, catalogEntries: catalogEntries).prefix(3) {
+            try Task.checkCancellation()
+            if let extraRaw = try? await runtime.call("search", args: [supplement, 1, searchType]) {
+                combined.append(contentsOf: parseTrackList(from: extraRaw))
+                let updated = SearchResultFilter.assess(
+                    combined,
+                    query: request.query,
+                    isVideoPlatformSource: isVideoSource,
+                    catalogEntries: catalogEntries
+                )
+                if updated.cleanMusicCount >= 5 && !updated.needsMusicIntentSupplement {
+                    return updated.refined
+                }
+            }
+        }
+        return SearchResultFilter.refine(
+            combined,
+            query: request.query,
+            isVideoPlatformSource: isVideoSource,
+            catalogEntries: catalogEntries
+        )
     }
 
     func resolve(_ track: Track) async -> Track {

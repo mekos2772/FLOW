@@ -39,6 +39,9 @@ enum ContainerBuilder {
         case .app, .degraded: isProduction = true
         case .testing, .preview: isProduction = false
         }
+        if isProduction {
+            MusicCatalogResolver.shared.attach(registry: registry)
+        }
         let sourceManager = SourceManager(
             registry: registry,
             networkEnabledProvider: { settings.enableNetwork },

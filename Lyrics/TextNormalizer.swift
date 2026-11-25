@@ -23,6 +23,19 @@ enum TextNormalizer {
         return mutable as String
     }
 
+    /// 简体转繁体。供外部歌词源（如 LRCLIB 收录的大量港台繁体条目）做双写检索。
+    static func traditional(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        guard text.unicodeScalars.contains(where: {
+            (0x3400...0x9FFF).contains($0.value) || (0xF900...0xFAFF).contains($0.value)
+        }) else {
+            return text
+        }
+        let mutable = NSMutableString(string: text)
+        CFStringTransform(mutable, nil, "Simplified-Traditional" as CFString, false)
+        return mutable as String
+    }
+
     /// 这段文字是不是日文（含假名音节，排除中文排印常用间隔号 `・` 等非假名标点）。
     ///
     /// 繁→简转换**只能用在中文上**。日文汉字和繁体字大量共用码位，

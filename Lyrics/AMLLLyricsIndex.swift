@@ -53,19 +53,23 @@ struct AMLLLyricsIndex: Sendable {
     /// 逐词歌词排在所有歌词源的最前面，一旦认错，屏幕上滚动的就是另一首歌——
     /// 而且看起来"非常精确"，比没有歌词更糟。所以规则是保守的：
     ///
-    /// 1. 歌手对得上 → 用它（歌名相等，或构成包含关系且长度比例 ≥ 60%）；
+    /// 1. 歌手对得上（直接匹配 `artist`、别名互认，或在原视频标题 `context` 中命中）→ 用它（歌名相等，或构成包含关系且长度比例 ≥ 60%）；
     /// 2. 歌手**可靠**（来自标题里的「歌手 - 歌名」）却对不上 → 不用；
     /// 3. 歌手未知/不可靠（B 站的"歌手位"常常只是 UP 主）→ 只在歌名**完全相等**、
     ///    且库里叫这个名字的只有一位歌手时才给出，并标成"未确认"。
-    func match(title: String, artist: String?, artistIsReliable: Bool) -> Match? {
-        let wanted = LyricQueryNormalizer.normalize(title)
+    func match(title: String,
+               artist: String?,
+               artistIsReliable: Bool,
+               context: LyricQueryNormalizer.MatchContext? = nil) -> Match? {
+        let wanted = LyricQueryNormalizer.canonicalTitle(title)
         guard !wanted.isEmpty else { return nil }
         let wantedArtist = artist.map { LyricQueryNormalizer.normalize($0) } ?? ""
+        let artistContext = artist.flatMap { $0.isEmpty ? nil : LyricQueryNormalizer.MatchContext($0) }
 
         var exact: [Entry] = []
         var loose: [Entry] = []
         for entry in entries {
-            let name = LyricQueryNormalizer.normalize(entry.musicName)
+            let name = LyricQueryNormalizer.canonicalTitle(entry.musicName)
             guard !name.isEmpty else { continue }
             if name == wanted {
                 exact.append(entry)
@@ -84,16 +88,33 @@ struct AMLLLyricsIndex: Sendable {
             return entry.artists.contains { candidate in
                 let normalized = LyricQueryNormalizer.normalize(candidate)
                 guard normalized.count >= 2 else { return false }
-                return normalized == wantedArtist
-                    || normalized.contains(wantedArtist) || wantedArtist.contains(normalized)
+                if normalized == wantedArtist
+                    || normalized.contains(wantedArtist)
+                    || wantedArtist.contains(normalized) {
+                    return true
+                }
+                return artistContext?.mentions(artist: candidate) == true
             }
+        }
+
+        func contextMatches(_ entry: Entry) -> Bool {
+            guard let context else { return false }
+            return entry.artists.contains { context.mentions(artist: $0) }
         }
 
         if !wantedArtist.isEmpty {
             if let hit = exact.first(where: artistMatches) ?? loose.first(where: artistMatches) {
                 return Match(entry: hit, isArtistConfirmed: true)
             }
-            if artistIsReliable { return nil }
+        }
+
+        // 即使 `artist` 缺失或为视频 UP 主，只要库中歌手名（含中英文别名）明确出现在原视频标题里，即可确认。
+        if let hit = exact.first(where: contextMatches) ?? loose.first(where: contextMatches) {
+            return Match(entry: hit, isArtistConfirmed: true)
+        }
+
+        if !wantedArtist.isEmpty && artistIsReliable {
+            return nil
         }
 
         guard let first = exact.first else { return nil }
